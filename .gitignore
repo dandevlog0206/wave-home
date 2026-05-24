@@ -1,0 +1,17 @@
+build/
+bin/
+cmake-build-*/
+.cache/
+*.user
+*.swp
+
+# React toolchain (sources live in react/)
+react/node_modules/
+react/dist/
+
+# Built dashboard served by wave-server (output of script/build_site.sh)
+site/
+
+# IDE
+.idea/
+.vscode/

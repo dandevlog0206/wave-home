@@ -1,0 +1,7 @@
+7767517
+5 5
+Input                    in0                      0 1 in0
+LSTM                     lstm_1                   1 1 in0 1 0=128 1=131072 2=0 3=128
+Crop                     select_0                 1 1 1 2 -23310=1,0 -23311=1,0 -23309=1,-1
+Squeeze                  squeeze_2                1 1 2 3 -23303=1,0
+InnerProduct             linear_0                 1 1 3 out0 0=14 1=1 2=1792

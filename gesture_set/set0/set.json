@@ -1,0 +1,62 @@
+{
+  "id": "set0",
+  "name": "제스처 세트 1",
+  "description": "기본 홈 제어에 적합한 핵심 제스처입니다.",
+  "modelPath": "model/model.json",
+  "gestureClassIds": [1, 2, 3, 4, 5],
+  "classLabels": {
+    "0": "제스처 없음",
+    "1": "만세 후 왼쪽으로 스윙",
+    "2": "만세 후 오른쪽으로 스윙",
+    "3": "만세 후 앞으로 숙이기",
+    "4": "왼팔을 옆으로 뻗고 날갯짓",
+    "5": "오른팔을 옆으로 뻗고 날갯짓"
+  },
+  "gestures": [
+    {
+      "gestureClassId": 1,
+      "name": "만세 후 왼쪽으로 스윙",
+      "media": { "preview": "media/gestures/01/preview.png" },
+      "trigger": {
+        "mode": "toggle",
+        "highThreshold": 0.55,
+        "lowThreshold": 0.35,
+        "cooldownMs": 800,
+        "minHighHoldMs": 120,
+        "minLowHoldMs": 120
+      }
+    },
+    {
+      "gestureClassId": 2,
+      "name": "만세 후 오른쪽으로 스윙",
+      "media": { "preview": "media/gestures/02/preview.png" },
+      "trigger": { "mode": "toggle", "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800,
+        "minHighHoldMs": 120,
+        "minLowHoldMs": 120 }
+    },
+    {
+      "gestureClassId": 3,
+      "name": "만세 후 앞으로 숙이기",
+      "media": { "preview": "media/gestures/03/preview.png" },
+      "trigger": { "mode": "toggle", "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800,
+        "minHighHoldMs": 120,
+        "minLowHoldMs": 120 }
+    },
+    {
+      "gestureClassId": 4,
+      "name": "왼팔을 옆으로 뻗고 날갯짓",
+      "media": { "preview": "media/gestures/04/preview.png" },
+      "trigger": { "mode": "toggle", "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800,
+        "minHighHoldMs": 120,
+        "minLowHoldMs": 120 }
+    },
+    {
+      "gestureClassId": 5,
+      "name": "오른팔을 옆으로 뻗고 날갯짓",
+      "media": { "preview": "media/gestures/05/preview.png" },
+      "trigger": { "mode": "toggle", "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800,
+        "minHighHoldMs": 120,
+        "minLowHoldMs": 120 }
+    }
+  ]
+}

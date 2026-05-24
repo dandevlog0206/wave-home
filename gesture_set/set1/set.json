@@ -1,0 +1,68 @@
+{
+  "id": "set1",
+  "name": "제스처 세트 2",
+  "description": "밝기, 온도, 보안 제어에 어울리는 제스처입니다.",
+  "modelPath": "model/model.json",
+  "gestureClassIds": [1, 2, 3, 4, 5, 6, 7, 8],
+  "classLabels": {
+    "0": "제스처 없음",
+    "1": "오른팔로 부채질",
+    "2": "몸 앞에서 팔 빙글빙글",
+    "3": "양팔 앞으로 뻗고 위로 스윙",
+    "4": "양팔 옆으로 뻗고 위로 날갯짓",
+    "5": "양팔 옆으로 뻗고 아래로 날갯짓",
+    "6": "왼팔을 들고 팔 돌리기",
+    "7": "양팔을 내리고 왼쪽으로 스윙",
+    "8": "양팔을 내리고 오른쪽으로 스윙"
+  },
+  "gestures": [
+    {
+      "gestureClassId": 1,
+      "name": "오른팔로 부채질",
+      "media": { "preview": "media/gestures/01/preview.png" },
+      "trigger": { "mode": "toggle", "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
+    },
+    {
+      "gestureClassId": 2,
+      "name": "몸 앞에서 팔 빙글빙글",
+      "media": { "preview": "media/gestures/02/preview.png" },
+      "trigger": { "mode": "toggle", "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
+    },
+    {
+      "gestureClassId": 3,
+      "name": "양팔 앞으로 뻗고 위로 스윙",
+      "media": { "preview": "media/gestures/03/preview.png" },
+      "trigger": { "mode": "toggle", "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
+    },
+    {
+      "gestureClassId": 4,
+      "name": "양팔 옆으로 뻗고 위로 날갯짓",
+      "media": { "preview": "media/gestures/04/preview.png" },
+      "trigger": { "mode": "toggle", "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
+    },
+    {
+      "gestureClassId": 5,
+      "name": "양팔 옆으로 뻗고 아래로 날갯짓",
+      "media": { "preview": "media/gestures/05/preview.png" },
+      "trigger": { "mode": "toggle", "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
+    },
+    {
+      "gestureClassId": 6,
+      "name": "왼팔을 들고 팔 돌리기",
+      "media": { "preview": "media/gestures/06/preview.png" },
+      "trigger": { "mode": "toggle", "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
+    },
+    {
+      "gestureClassId": 7,
+      "name": "양팔을 내리고 왼쪽으로 스윙",
+      "media": { "preview": "media/gestures/07/preview.png" },
+      "trigger": { "mode": "toggle", "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
+    },
+    {
+      "gestureClassId": 8,
+      "name": "양팔을 내리고 오른쪽으로 스윙",
+      "media": { "preview": "media/gestures/08/preview.png" },
+      "trigger": { "mode": "toggle", "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
+    }
+  ]
+}
