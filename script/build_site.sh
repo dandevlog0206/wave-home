@@ -15,8 +15,4 @@ fi
 
 npm run build
 
-mkdir -p "${SITE_DIR}"
-rm -rf "${SITE_DIR:?}/"*
-cp -a dist/. "${SITE_DIR}/"
-
 echo "Site built into ${SITE_DIR}"

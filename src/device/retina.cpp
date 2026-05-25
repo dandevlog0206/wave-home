@@ -5,7 +5,7 @@
 #include <sstream>
 #include <thread>
 
-#include "util/network.h"
+#include "network.h"
 
 #define CHECK_READ(exp) \
 	do { \

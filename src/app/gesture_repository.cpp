@@ -1,19 +1,11 @@
 #include "gesture_repository.h"
 
+#include <filesystem>
+#include <fstream>
+
 #include <nlohmann/json.hpp>
 
-#include <fstream>
-#include <filesystem>
-
-namespace
-{
-	GestureTriggerMode parseMode(const std::string& mode)
-	{
-		if (mode == "pulse")
-			return GestureTriggerMode::Pulse;
-		return GestureTriggerMode::Toggle;
-	}
-}
+WAVE_NAMESPACE_BEGIN
 
 bool GestureRepository::load(const std::string& gesture_set_root)
 {
@@ -85,12 +77,13 @@ bool GestureRepository::loadSetFile(const std::string& set_id)
 		if (gesture.contains("trigger"))
 		{
 			const auto& t = gesture.at("trigger");
-			cfg.mode = parseMode(t.value("mode", "toggle"));
+			cfg.mode = gestureTriggerModeFromString(t.value("mode", "pulse"));
 			cfg.highThreshold = t.value("highThreshold", 0.55f);
 			cfg.lowThreshold = t.value("lowThreshold", 0.35f);
 			cfg.cooldownMs = t.value("cooldownMs", 800u);
 			cfg.minHighHoldMs = t.value("minHighHoldMs", 120u);
 			cfg.minLowHoldMs = t.value("minLowHoldMs", 120u);
+			cfg.repeatIntervalMs = t.value("repeatIntervalMs", 600u);
 		}
 		manifest.triggersByClassId[class_id] = cfg;
 	}
@@ -125,3 +118,5 @@ std::string GestureRepository::mediaUrl(const std::string& set_id, const std::st
 		return {};
 	return "/api/v1/gesture-media/" + set_id + "/" + relative_path;
 }
+
+WAVE_NAMESPACE_END

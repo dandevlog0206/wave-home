@@ -1,8 +1,10 @@
 const API_BASE = '/api/v1';
+let currentLocale = 'en-US';
 
 async function fetchJson(path, options = {}) {
   const headers = {
     Accept: 'application/json',
+    'X-Wave-Locale': currentLocale,
     ...(options.body ? { 'Content-Type': 'application/json' } : {}),
     ...options.headers,
   };
@@ -37,19 +39,28 @@ export const api = {
     fetchJson('/bindings', { method: 'PUT', body: JSON.stringify(payload) }),
   clearDeviceBindings: (deviceId) =>
     fetchJson(`/bindings?deviceId=${encodeURIComponent(deviceId)}`, { method: 'DELETE' }),
+  testDeviceControl: (deviceId, controlId) =>
+    fetchJson(
+      `/devices/${encodeURIComponent(deviceId)}/controls/${encodeURIComponent(controlId)}/test`,
+      { method: 'POST' }
+    ),
 };
+
+export function setApiLocale(localeTag) {
+  currentLocale = localeTag || 'en-US';
+}
 
 export function devStreamUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}/api/v1/dev/stream`;
 }
 
-export function formatRelativeTime(iso) {
-  if (!iso) return '—';
-  const then = new Date(iso).getTime();
-  const diffSec = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  if (diffSec < 60) return '방금 전';
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}분 전`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}시간 전`;
-  return `${Math.floor(diffSec / 86400)}일 전`;
+export function parseApiError(err) {
+  if (!err?.message) return '요청에 실패했습니다.';
+  try {
+    const body = JSON.parse(err.message);
+    return body?.error?.message ?? err.message;
+  } catch {
+    return err.message;
+  }
 }

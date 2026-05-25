@@ -1,10 +1,12 @@
 #pragma once
 
-#include "device/gesture_trigger_config.h"
-
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "device/gesture_trigger_config.h"
+
+WAVE_NAMESPACE_BEGIN
 
 class GestureRepository
 {
@@ -29,3 +31,5 @@ private:
 	std::vector<std::string> m_setIds;
 	std::unordered_map<std::string, GestureSetManifest> m_sets;
 };
+
+WAVE_NAMESPACE_END

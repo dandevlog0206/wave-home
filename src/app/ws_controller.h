@@ -1,8 +1,11 @@
 #pragma once
 
 #include <drogon/WebSocketController.h>
+#include "../core/coredef.h"
 
-class DevWsController : public drogon::WebSocketController<DevWsController>
+WAVE_NAMESPACE_BEGIN
+
+class WebSocketController : public drogon::WebSocketController<WebSocketController>
 {
 public:
 	void handleNewMessage(
@@ -22,3 +25,5 @@ public:
 	WS_PATH_ADD("/api/v1/dev/stream", drogon::Get);
 	WS_PATH_LIST_END
 };
+
+WAVE_NAMESPACE_END

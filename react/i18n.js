@@ -1,0 +1,292 @@
+export const SUPPORTED_LOCALES = ['ko-KR', 'en-US'];
+
+const MESSAGES = {
+  'ko-KR': {
+    'common.none': '—',
+    'common.loading': '로딩 중...',
+    'common.justNow': '방금 전',
+    'common.minutesAgo': '{count}분 전',
+    'common.hoursAgo': '{count}시간 전',
+    'common.daysAgo': '{count}일 전',
+
+    'nav.main': 'Main',
+    'nav.main.short': 'Main',
+    'nav.history': '제스처 히스토리',
+    'nav.history.short': '히스토리',
+    'nav.gestures': '제스처 목록',
+    'nav.gestures.short': '제스처',
+    'nav.devices': 'IoT 상태',
+    'nav.devices.short': 'IoT',
+    'nav.developer': '개발자',
+    'nav.developer.short': '개발',
+
+    'brand.name': 'WaveHome',
+    'brand.subtitle': 'Radar Control',
+    'language.label': '언어',
+    'language.ko-KR': '한국어',
+    'language.en-US': 'English',
+
+    'hero.eyebrow': 'WAVEHOME DASHBOARD',
+    'hero.title': '파도에 몸을 맡기듯 당신의 집이 편안하도록, WaveHome',
+    'hero.description': '레이더 센서로 제스처를 인식하고 IoT 기기 상태를 한 화면에서 관리합니다.',
+
+    'metric.radar': 'Radar 상태',
+    'metric.today': '오늘 인식',
+    'metric.today.detail': '서버 집계',
+    'metric.iot': '연결된 IoT',
+    'metric.iot.detail': '활성 제어가 있는 온라인 기기',
+    'metric.activeGesture': '활성 제스처',
+    'metric.activeGesture.detail': '{count}개 제스처 사용 가능',
+
+    'page.history.title': '제스처 히스토리',
+    'page.history.description': '그동안 인식된 제스처와 연결된 IoT 동작 기록입니다.',
+    'page.history.panel': '인식 로그',
+
+    'page.gestures.title': '제스처 목록',
+    'page.gestures.description': '세트를 선택하면 아래에 제스처가 표시됩니다. 활성 세트는 IoT 제어에 사용됩니다.',
+    'page.gestures.selected': '선택된 세트',
+    'page.gestures.empty': '등록된 제스처가 없습니다.',
+    'page.gestures.activeSet': '활성 세트',
+    'page.gestures.waiting': '대기',
+    'page.gestures.activating': '활성화 중...',
+    'page.gestures.activated': '활성화됨',
+    'page.gestures.activate': '활성화',
+    'page.gestures.active': '활성',
+    'page.gestures.inactive': '비활성',
+
+    'page.devices.title': 'IoT 목록과 상태',
+    'page.devices.description': 'WaveHome과 연결된 기기의 연결 상태와 현재 전원 상태를 확인합니다.',
+    'page.devices.activeGestureSet': '활성 제스처 세트',
+    'page.devices.deactivateAll': '전체 비활성',
+    'page.devices.inactiveOption': '비활성',
+    'page.devices.controlSettings': '{name} 제어 설정',
+    'page.devices.configure': '설정',
+    'page.devices.test': '테스트',
+    'page.devices.test.running': '...',
+    'page.devices.test.ok': '완료',
+    'page.devices.test.error': '실패',
+    'page.devices.usedElsewhere': '사용 중',
+    'page.devices.binding.none': '비활성',
+    'page.devices.binding.activeStatus': 'Active',
+    'page.devices.binding.inactiveStatus': 'Inactive',
+    'page.devices.binding.gesture': '제스처',
+    'page.devices.binding.trigger': '트리거 방식',
+    'page.devices.binding.repeatInterval': '펄스 간격',
+    'page.devices.binding.repeatHint': '문턱값을 계속 넘기는 동안 지정한 간격으로 반복 펄스를 보냅니다.',
+    'page.devices.binding.modalTitle': '{name} 설정',
+    'page.devices.binding.modalDescription': '제스처와 트리거 방식을 선택합니다.',
+    'page.devices.binding.cancel': '취소',
+    'page.devices.binding.save': '저장',
+    'page.devices.openConfig': '바인딩 설정 열기',
+    'page.devices.triggerMode.pulse': '펄스',
+    'page.devices.triggerMode.pulse.description': '조건을 만족하면 1회 실행합니다.',
+    'page.devices.triggerMode.toggle': '토글',
+    'page.devices.triggerMode.toggle.description': '실행될 때마다 on/off 상태를 번갈아 적용합니다.',
+    'page.devices.triggerMode.repeat': '반복 펄스',
+    'page.devices.triggerMode.repeat.description': '첫 실행 후에도 유지되면 주기적으로 반복 실행합니다.',
+
+    'page.developer.title': '개발자 · 실시간 디버그',
+    'page.developer.description': 'WebSocket {state} — 확률·트리거·임베딩을 실시간으로 확인합니다.',
+    'page.developer.websocket.live': '연결됨',
+    'page.developer.websocket.connecting': 'connecting',
+    'page.developer.websocket.closed': 'closed',
+    'page.developer.websocket.error': 'error',
+    'page.developer.serverRadar': '서버 · 레이더',
+    'page.developer.logs': '서버 로그',
+    'page.developer.logs.empty': '로그 대기 중…',
+    'page.developer.probabilities': '클래스 확률 분포',
+    'page.developer.embedding': '시퀀스 임베딩 궤적',
+    'page.developer.embedding.wait': '시퀀스 임베딩 대기 중…',
+    'page.developer.colormap': '컬러맵',
+    'page.developer.channels': '트리거 채널',
+    'page.developer.uptime': '가동 시간',
+    'page.developer.activeSet': '활성 세트',
+    'page.developer.connection': '연결',
+    'page.developer.connected': '연결됨',
+    'page.developer.disconnected': '끊김',
+    'page.developer.ip': 'IP',
+    'page.developer.mac': 'MAC',
+    'page.developer.model': '모델',
+    'page.developer.frameRate': '프레임율',
+    'page.developer.targetCount': '타깃 수',
+    'page.developer.embeddingAxisY': '임베딩 차원 ↓',
+    'page.developer.embeddingAxisX': '시간 →',
+    'page.developer.channelState': '상태',
+    'page.developer.channelScore': '점수',
+    'page.developer.channelHigh': 'High',
+    'page.developer.channelLow': 'Low',
+    'page.developer.channelCooldown': '쿨다운',
+    'page.developer.channelMinHigh': 'High 유지',
+    'page.developer.channelMinLow': 'Low 유지',
+    'page.developer.channelTriggerMode': '트리거',
+    'page.developer.channelRepeat': '반복 간격',
+    'page.developer.channelHold': '홀드 진행',
+    'page.developer.channelReady': '준비',
+    'page.developer.channelCooling': '대기',
+    'page.developer.sectionEyebrow': 'Developer',
+
+    'history.iconGesture': '✦',
+  },
+  'en-US': {
+    'common.none': '—',
+    'common.loading': 'Loading...',
+    'common.justNow': 'Just now',
+    'common.minutesAgo': '{count}m ago',
+    'common.hoursAgo': '{count}h ago',
+    'common.daysAgo': '{count}d ago',
+
+    'nav.main': 'Main',
+    'nav.main.short': 'Main',
+    'nav.history': 'Gesture History',
+    'nav.history.short': 'History',
+    'nav.gestures': 'Gestures',
+    'nav.gestures.short': 'Gestures',
+    'nav.devices': 'IoT',
+    'nav.devices.short': 'IoT',
+    'nav.developer': 'Developer',
+    'nav.developer.short': 'Dev',
+
+    'brand.name': 'WaveHome',
+    'brand.subtitle': 'Radar Control',
+    'language.label': 'Language',
+    'language.ko-KR': 'Korean',
+    'language.en-US': 'English',
+
+    'hero.eyebrow': 'WAVEHOME DASHBOARD',
+    'hero.title': 'Make home control feel natural with WaveHome.',
+    'hero.description': 'Use radar-based gestures to monitor activity and control connected devices from one place.',
+
+    'metric.radar': 'Radar',
+    'metric.today': 'Recognitions Today',
+    'metric.today.detail': 'Server total',
+    'metric.iot': 'Connected IoT',
+    'metric.iot.detail': 'Online devices with active controls',
+    'metric.activeGesture': 'Active Gesture Set',
+    'metric.activeGesture.detail': '{count} gestures available',
+
+    'page.history.title': 'Gesture History',
+    'page.history.description': 'A log of recognized gestures and linked IoT actions.',
+    'page.history.panel': 'Recognition Log',
+
+    'page.gestures.title': 'Gestures',
+    'page.gestures.description': 'Select a set to view its gestures below. The active set is used for IoT control.',
+    'page.gestures.selected': 'Selected Set',
+    'page.gestures.empty': 'No gestures registered.',
+    'page.gestures.activeSet': 'Active Set',
+    'page.gestures.waiting': 'Idle',
+    'page.gestures.activating': 'Activating...',
+    'page.gestures.activated': 'Active',
+    'page.gestures.activate': 'Activate',
+    'page.gestures.active': 'Active',
+    'page.gestures.inactive': 'Inactive',
+
+    'page.devices.title': 'IoT Devices',
+    'page.devices.description': 'Check connectivity and current device state for devices linked to WaveHome.',
+    'page.devices.activeGestureSet': 'Active Gesture Set',
+    'page.devices.deactivateAll': 'Deactivate All',
+    'page.devices.inactiveOption': 'Inactive',
+    'page.devices.controlSettings': '{name} Controls',
+    'page.devices.configure': 'Configure',
+    'page.devices.test': 'Test',
+    'page.devices.test.running': '...',
+    'page.devices.test.ok': 'Done',
+    'page.devices.test.error': 'Failed',
+    'page.devices.usedElsewhere': 'In use',
+    'page.devices.binding.none': 'Inactive',
+    'page.devices.binding.activeStatus': 'Active',
+    'page.devices.binding.inactiveStatus': 'Inactive',
+    'page.devices.binding.gesture': 'Gesture',
+    'page.devices.binding.trigger': 'Trigger Mode',
+    'page.devices.binding.repeatInterval': 'Pulse Interval',
+    'page.devices.binding.repeatHint': 'Keep sending pulses at the chosen interval while the gesture stays above the threshold.',
+    'page.devices.binding.modalTitle': '{name} Settings',
+    'page.devices.binding.modalDescription': 'Choose a gesture and how it should trigger.',
+    'page.devices.binding.cancel': 'Cancel',
+    'page.devices.binding.save': 'Save',
+    'page.devices.openConfig': 'Open binding settings',
+    'page.devices.triggerMode.pulse': 'Pulse',
+    'page.devices.triggerMode.pulse.description': 'Run once when the trigger condition is met.',
+    'page.devices.triggerMode.toggle': 'Toggle',
+    'page.devices.triggerMode.toggle.description': 'Alternate between on/off each time it runs.',
+    'page.devices.triggerMode.repeat': 'Repeat Pulse',
+    'page.devices.triggerMode.repeat.description': 'After the first run, keep firing on an interval while the gesture remains active.',
+
+    'page.developer.title': 'Developer · Live Debug',
+    'page.developer.description': 'WebSocket {state} — inspect probabilities, triggers, and embeddings in real time.',
+    'page.developer.websocket.live': 'connected',
+    'page.developer.websocket.connecting': 'connecting',
+    'page.developer.websocket.closed': 'closed',
+    'page.developer.websocket.error': 'error',
+    'page.developer.serverRadar': 'Server · Radar',
+    'page.developer.logs': 'Server Logs',
+    'page.developer.logs.empty': 'Waiting for logs…',
+    'page.developer.probabilities': 'Class Probabilities',
+    'page.developer.embedding': 'Sequence Embedding Trace',
+    'page.developer.embedding.wait': 'Waiting for sequence embedding…',
+    'page.developer.colormap': 'Colormap',
+    'page.developer.channels': 'Trigger Channels',
+    'page.developer.uptime': 'Uptime',
+    'page.developer.activeSet': 'Active Set',
+    'page.developer.connection': 'Connection',
+    'page.developer.connected': 'Connected',
+    'page.developer.disconnected': 'Disconnected',
+    'page.developer.ip': 'IP',
+    'page.developer.mac': 'MAC',
+    'page.developer.model': 'Model',
+    'page.developer.frameRate': 'Frame Rate',
+    'page.developer.targetCount': 'Targets',
+    'page.developer.embeddingAxisY': 'Embedding dim ↓',
+    'page.developer.embeddingAxisX': 'Time →',
+    'page.developer.channelState': 'State',
+    'page.developer.channelScore': 'Score',
+    'page.developer.channelHigh': 'High',
+    'page.developer.channelLow': 'Low',
+    'page.developer.channelCooldown': 'Cooldown',
+    'page.developer.channelMinHigh': 'High Hold',
+    'page.developer.channelMinLow': 'Low Hold',
+    'page.developer.channelTriggerMode': 'Trigger',
+    'page.developer.channelRepeat': 'Repeat',
+    'page.developer.channelHold': 'Hold',
+    'page.developer.channelReady': 'Ready',
+    'page.developer.channelCooling': 'Cooling',
+    'page.developer.sectionEyebrow': 'Developer',
+
+    'history.iconGesture': '✦',
+  },
+};
+
+export function normalizeLocaleTag(tag) {
+  const value = String(tag || '').replace('_', '-').toLowerCase();
+  if (value.startsWith('ko')) return 'ko-KR';
+  if (value.startsWith('en')) return 'en-US';
+  return 'en-US';
+}
+
+export function detectSystemLocale() {
+  if (typeof navigator === 'undefined') return 'en-US';
+  return normalizeLocaleTag(navigator.language || navigator.languages?.[0] || 'en-US');
+}
+
+export function interpolate(message, params = {}) {
+  return Object.entries(params).reduce(
+    (out, [key, value]) => out.replaceAll(`{${key}}`, String(value)),
+    message
+  );
+}
+
+export function createTranslator(localeTag) {
+  const resolved = normalizeLocaleTag(localeTag);
+  const messages = MESSAGES[resolved] ?? MESSAGES['en-US'];
+  return (key, params = {}) => interpolate(messages[key] ?? MESSAGES['en-US'][key] ?? key, params);
+}
+
+export function formatRelativeTime(iso, localeTag) {
+  if (!iso) return createTranslator(localeTag)('common.none');
+  const then = new Date(iso).getTime();
+  const diffSec = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  const t = createTranslator(localeTag);
+  if (diffSec < 60) return t('common.justNow');
+  if (diffSec < 3600) return t('common.minutesAgo', { count: Math.floor(diffSec / 60) });
+  if (diffSec < 86400) return t('common.hoursAgo', { count: Math.floor(diffSec / 3600) });
+  return t('common.daysAgo', { count: Math.floor(diffSec / 86400) });
+}

@@ -7,20 +7,56 @@
 #include <drogon/drogon.h>
 #include <asio.hpp>
 #include "app/app_state.h"
-#include "gesture_output_stabilizer.h"
+#include "gesture_probability_gate.h"
 #include "gesture_set_catalog.h"
 #include "inference_engine.h"
 #include "retina.h"
-#include "util/network.h"
+#include "../device/network.h"
+
+WAVE_NAMESPACE_BEGIN
 
 namespace
 {
 	constexpr std::chrono::seconds kReconnectDelay {15};
 
+	void devLog(const std::string& level, const std::string& message)
+	{
+		AppState::instance().appendDevLog(level, message);
+	}
+
 	struct QueuedRadarFrame
 	{
 		retina::Frame frame;
 	};
+
+	void publishRadarConnecting(const std::string& detail_key, uint32_t countdown_sec = 0)
+	{
+		RadarState radar {};
+		radar.connected = false;
+		radar.status = "connecting";
+		radar.detail = detail_key;
+		radar.reconnectCountdownSec = countdown_sec;
+		AppState::instance().updateRadar(radar);
+	}
+
+	void sleepReconnectDelay(std::atomic<bool>& stop_requested)
+	{
+		constexpr auto delay = kReconnectDelay;
+		const auto deadline = std::chrono::steady_clock::now() + delay;
+
+		while (!stop_requested.load())
+		{
+			const auto now = std::chrono::steady_clock::now();
+			if (now >= deadline)
+				break;
+
+			const auto remaining = std::chrono::duration_cast<std::chrono::seconds>(deadline - now).count();
+			publishRadarConnecting(
+				"radar.detail.connecting",
+				static_cast<uint32_t>(std::max<int64_t>(1, remaining)));
+			std::this_thread::sleep_for(std::chrono::seconds(1));
+		}
+	}
 }
 
 struct SensorPipeline::Impl
@@ -29,7 +65,7 @@ struct SensorPipeline::Impl
 
 	GestureSetCatalog catalog;
 	net::InferenceEngine inference;
-	wave::GestureOutputStabilizer stabilizer;
+	wave::GestureProbabilityGate probabilityGate;
 
 	std::mutex queue_mutex;
 	std::condition_variable queue_cv;
@@ -89,7 +125,7 @@ void SensorPipeline::start(const std::string& gesture_set_root)
 	try
 	{
 		m_impl->inference.load(m_impl->catalog.activeSet().modelJsonPath.c_str());
-		m_impl->stabilizer.configure(m_impl->catalog.activeSet());
+		m_impl->probabilityGate.configure(m_impl->catalog.activeSet());
 	}
 	catch (const std::exception& ex)
 	{
@@ -101,6 +137,7 @@ void SensorPipeline::start(const std::string& gesture_set_root)
 	m_impl->inference_thread = std::thread([this] { m_impl->inferenceLoop(); });
 
 	LOG_INFO << "sensor_pipeline: started (active set " << m_impl->catalog.activeSetId() << ')';
+	devLog("info", "센서 파이프라인 시작 · " + m_impl->catalog.activeSetId());
 }
 
 void SensorPipeline::stop()
@@ -132,6 +169,7 @@ void SensorPipeline::stop()
 	m_impl->io_context.reset();
 
 	LOG_INFO << "sensor_pipeline: stopped";
+	devLog("info", "센서 파이프라인 중지");
 }
 
 bool SensorPipeline::reloadActiveSet(const std::string& set_id)
@@ -141,23 +179,39 @@ bool SensorPipeline::reloadActiveSet(const std::string& set_id)
 
 	m_impl->catalog.setRoot(m_impl->gesture_set_root);
 	if (!m_impl->catalog.loadSet(set_id))
+	{
+		devLog("error", "제스처 세트 로드 실패 · " + set_id);
 		return false;
+	}
 
 	try
 	{
 		m_impl->inference.load(m_impl->catalog.activeSet().modelJsonPath.c_str());
-		m_impl->stabilizer.configure(m_impl->catalog.activeSet());
-		m_impl->stabilizer.reset();
+		m_impl->probabilityGate.configure(m_impl->catalog.activeSet());
+		m_impl->probabilityGate.reset();
 		LOG_INFO << "sensor_pipeline: reloaded model for " << set_id;
+		devLog("info", "모델 리로드 완료 · " + set_id);
 		return true;
 	}
 	catch (const std::exception& ex)
 	{
 		LOG_WARN << "sensor_pipeline: reload failed for " << set_id << ": " << ex.what();
-		m_impl->stabilizer.configure(m_impl->catalog.activeSet());
-		m_impl->stabilizer.reset();
+		devLog("error", std::string("모델 리로드 실패 · ") + set_id + ": " + ex.what());
+		m_impl->probabilityGate.configure(m_impl->catalog.activeSet());
+		m_impl->probabilityGate.reset();
 		return false;
 	}
+}
+
+void SensorPipeline::reloadTriggerBindings(
+	const std::unordered_map<uint32_t, GestureTriggerConfig>& overrides)
+{
+	if (!m_running.load())
+		return;
+
+	m_impl->probabilityGate.configure(m_impl->catalog.activeSet(), overrides);
+	m_impl->probabilityGate.reset();
+	devLog("info", "트리거 바인딩 설정 갱신");
 }
 
 void SensorPipeline::Impl::publishRadarDisconnected()
@@ -165,7 +219,8 @@ void SensorPipeline::Impl::publishRadarDisconnected()
 	RadarState radar {};
 	radar.connected = false;
 	radar.status = "offline";
-	radar.detail = "센서 미연결";
+	radar.detail = "radar.detail.disconnected";
+	radar.reconnectCountdownSec = 0;
 	AppState::instance().updateRadar(radar);
 }
 
@@ -174,10 +229,11 @@ void SensorPipeline::Impl::publishRadarConnected(const retina::DeviceInfo& info)
 	RadarState radar {};
 	radar.connected = true;
 	radar.status = "ok";
-	radar.detail = "실시간 감지 중";
+	radar.detail = "radar.detail.live";
 	radar.ip = info.ip;
 	radar.mac = info.mac;
 	radar.model = info.model;
+	radar.reconnectCountdownSec = 0;
 	AppState::instance().updateRadar(radar);
 }
 
@@ -197,17 +253,17 @@ void SensorPipeline::Impl::publishInferenceResult()
 	snap.sequenceLength = model.sequenceLength;
 	snap.sequenceReady = true;
 
-	auto channels = stabilizer.debugSnapshot();
-	for (auto& ch : channels)
+	auto gates = probabilityGate.debugSnapshot();
+	for (auto& gate : gates)
 	{
 		const auto name = AppState::instance().gestures().gestureName(
 			AppState::instance().gestures().activeSetId(),
-			ch.gestureClassId);
+			gate.gestureClassId);
 		if (!name.empty())
 			(void)name;
 	}
 
-	AppState::instance().updateInference(snap, channels);
+	AppState::instance().updateInference(snap, gates);
 }
 
 void SensorPipeline::Impl::pushFrame(retina::Frame frame)
@@ -244,9 +300,11 @@ void SensorPipeline::Impl::connectionLoop()
 		if (!network::getLocalNetworkInfo(net_info))
 		{
 			LOG_WARN << "sensor_pipeline: failed to read local network info, retry in 15s";
-			std::this_thread::sleep_for(kReconnectDelay);
+			sleepReconnectDelay(stop_requested);
 			continue;
 		}
+
+		publishRadarConnecting("radar.detail.scanning");
 
 		retina::DeviceFinder finder(log);
 		std::string host;
@@ -254,9 +312,11 @@ void SensorPipeline::Impl::connectionLoop()
 		if (result != retina::DeviceFinder::Result::Success)
 		{
 			LOG_WARN << "sensor_pipeline: device scan failed, retry in 15s";
-			std::this_thread::sleep_for(kReconnectDelay);
+			sleepReconnectDelay(stop_requested);
 			continue;
 		}
+
+		publishRadarConnecting("radar.detail.connecting");
 
 		try
 		{
@@ -272,7 +332,7 @@ void SensorPipeline::Impl::connectionLoop()
 				RadarState radar = AppState::instance().radarSnapshot();
 				radar.connected = true;
 				radar.status = "ok";
-				radar.detail = "실시간 감지 중";
+				radar.detail = "radar.detail.live";
 				radar.targetCount = static_cast<uint32_t>(frame.targets.size());
 				radar.frameRateHz = client ? client->getFrameRate() : 0.0;
 				if (client)
@@ -281,6 +341,7 @@ void SensorPipeline::Impl::connectionLoop()
 					radar.mac = client->getDeviceInfo().mac;
 					radar.model = client->getDeviceInfo().model;
 				}
+				radar.reconnectCountdownSec = 0;
 				AppState::instance().updateRadar(radar);
 				pushFrame(frame);
 			});
@@ -314,7 +375,8 @@ void SensorPipeline::Impl::connectionLoop()
 			break;
 
 		LOG_WARN << "sensor_pipeline: disconnected, retry in 15s";
-		std::this_thread::sleep_for(kReconnectDelay);
+		devLog("warn", "레이더 연결 끊김 · 15초 후 재시도");
+		sleepReconnectDelay(stop_requested);
 	}
 }
 
@@ -328,27 +390,36 @@ void SensorPipeline::Impl::inferenceLoop()
 
 		try
 		{
-			net::Point* points = reinterpret_cast<net::Point*>(item.frame.points.data());
-			const auto point_count = item.frame.points.size();
+			std::vector<net::Point> points;
+			points.reserve(item.frame.points.size());
+			for (const auto& point : item.frame.points)
+			{
+				points.push_back(net::Point {
+					point.x,
+					point.y,
+					point.z,
+					point.doppler,
+					point.power,
+				});
+			}
 
-			inference.enqueueFrame(points, point_count, net::FRAME_IDX_BACK);
+			inference.enqueueFrame(std::move(points), net::FRAME_IDX_BACK);
 
 			if (!inference.hasSequence(net::SEQUENCE_IDX_BACK))
 				continue;
 
 			const auto& probs = inference.getSequenceProbabilities(net::SEQUENCE_IDX_BACK);
-			const auto events = stabilizer.update(probs);
+			const auto events = probabilityGate.update(probs);
 			publishInferenceResult();
 
 			for (const auto& ev : events)
 			{
-				if (!ev.toggled && !ev.active)
+				if (!ev.fired)
 					continue;
 				AppState::instance().recordGestureTrigger(ev.gestureClassId, ev.score);
 				LOG_INFO << "gesture class=" << ev.gestureClassId
 				         << " score=" << ev.score
-				         << " active=" << ev.active
-				         << " toggled=" << ev.toggled;
+				         << " fired=" << ev.fired;
 			}
 		}
 		catch (const std::exception& ex)
@@ -357,3 +428,5 @@ void SensorPipeline::Impl::inferenceLoop()
 		}
 	}
 }
+
+WAVE_NAMESPACE_END

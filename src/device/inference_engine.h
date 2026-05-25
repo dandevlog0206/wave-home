@@ -152,7 +152,7 @@ public:
 	// if frameIdx is already in the queue, it will be updated with the new points
 	// if frameIdx is FRAME_IDX_BACK, it will be treated as a new frame and pushed to the back of the queue
 	void enqueueFrame(const std::vector<Point>& points, FrameIdx frame_idx = FRAME_IDX_BACK);
-	/// Uses the first five floats of each Point (x,y,z,doppler,power) via reinterpret_cast.
+	void enqueueFrame(std::vector<Point>&& points, FrameIdx frame_idx = FRAME_IDX_BACK);
 	void enqueueFrame(const Point* points, size_t point_count, FrameIdx frame_idx = FRAME_IDX_BACK);
 	size_t getQueuedFrameCount() const;
 	bool hasFrame(FrameIdx frame_idx) const;

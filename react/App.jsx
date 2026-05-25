@@ -2,20 +2,24 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import logoImage from './img/logo.png';
 import logoWithStringImage from './img/logo_with_string.png';
-import { api, formatRelativeTime } from './api';
+import { api, parseApiError, setApiLocale } from './api';
 import DevPage from './DevPage';
+import { createTranslator, detectSystemLocale, formatRelativeTime, SUPPORTED_LOCALES } from './i18n';
 
-const navItems = [
-  { id: 'main', label: 'Main', icon: '⌂' },
-  { id: 'history', label: '제스처 히스토리', icon: '↺' },
-  { id: 'gestures', label: '제스처 목록', icon: '✋' },
-  { id: 'devices', label: 'IoT 상태', icon: '◈' },
-  { id: 'developer', label: '개발자', icon: '⚙' },
-];
+function makeNavItems(t) {
+  return [
+    { id: 'main', label: t('nav.main'), shortLabel: t('nav.main.short'), icon: '⌂' },
+    { id: 'history', label: t('nav.history'), shortLabel: t('nav.history.short'), icon: '↺' },
+    { id: 'gestures', label: t('nav.gestures'), shortLabel: t('nav.gestures.short'), icon: '✦' },
+    { id: 'devices', label: t('nav.devices'), shortLabel: t('nav.devices.short'), icon: '◈' },
+    { id: 'developer', label: t('nav.developer'), shortLabel: t('nav.developer.short'), icon: '⚙' },
+  ];
+}
 
 function usePoll(fn, intervalMs, deps = []) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,13 +40,36 @@ function usePoll(fn, intervalMs, deps = []) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [intervalMs, ...deps]);
+  }, [intervalMs, refreshTick, ...deps]);
 
-  return { data, error, refresh: fn };
+  const refresh = () => setRefreshTick((t) => t + 1);
+  return { data, error, refresh };
+}
+
+function getRadarMetric(summary, t) {
+  const radar = summary?.radar;
+  if (!radar) return { value: t('common.none'), detail: t('common.none') };
+  return {
+    value: radar.status || t('common.none'),
+    detail: radar.detail || t('common.none'),
+  };
+}
+
+function normalizeBindingTriggerMode(value, fallback = 'pulse') {
+  if (value === 'toggle' || value === 'repeat' || value === 'pulse') return value;
+  return fallback;
+}
+
+function normalizeRepeatIntervalMs(value, fallback = 600) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(100, Math.round(parsed));
 }
 
 function App() {
+  const [localeTag, setLocaleTag] = useState(detectSystemLocale());
   const [activeView, setActiveView] = useState('main');
+  const [devUnlocked, setDevUnlocked] = useState(false);
   const [logoClicks, setLogoClicks] = useState(0);
   const logoTimer = useRef(null);
 
@@ -50,12 +77,23 @@ function App() {
   const [selectedGestureSetId, setSelectedGestureSetId] = useState('set0');
   const [gestureSetDetail, setGestureSetDetail] = useState(null);
   const [activeSetGesturesList, setActiveSetGesturesList] = useState([]);
+  const [activatingSetId, setActivatingSetId] = useState(null);
+  const [activationError, setActivationError] = useState(null);
+  const [controlTestState, setControlTestState] = useState({});
+  const controlTestTimers = useRef({});
+  const [bindingModal, setBindingModal] = useState(null);
+  const t = useMemo(() => createTranslator(localeTag), [localeTag]);
+  const navItems = useMemo(() => makeNavItems(t), [t]);
 
-  const { data: summary } = usePoll(api.summary, 1000);
-  const { data: historyData } = usePoll(() => api.history({ limit: 50 }), 1000);
-  const { data: setsData } = usePoll(api.gestureSets, 5000);
-  const { data: devicesData } = usePoll(api.devices, 1000);
-  const { data: bindingsData } = usePoll(api.bindings, 1000);
+  useEffect(() => {
+    setApiLocale(localeTag);
+  }, [localeTag]);
+
+  const { data: summary } = usePoll(api.summary, 1000, [localeTag]);
+  const { data: historyData } = usePoll(() => api.history({ limit: 50 }), 1000, [localeTag]);
+  const { data: setsData, refresh: refreshGestureSets } = usePoll(api.gestureSets, 5000, [localeTag]);
+  const { data: devicesData } = usePoll(api.devices, 1000, [localeTag]);
+  const { data: bindingsData } = usePoll(api.bindings, 1000, [localeTag]);
 
   const activeSetId = setsData?.activeSetId ?? 'set0';
   const gestureSets = setsData?.items ?? [];
@@ -105,14 +143,6 @@ function App() {
     return map;
   }, [bindingsData]);
 
-  const gestureNameByClassId = useMemo(() => {
-    const map = {};
-    (gestureSetDetail?.gestures ?? []).forEach((g) => {
-      map[g.gestureClassId] = g.name;
-    });
-    return map;
-  }, [gestureSetDetail]);
-
   const historyItems = useMemo(
     () =>
       (historyData?.items ?? []).map((item) => ({
@@ -120,10 +150,10 @@ function App() {
         gesture: item.gestureName,
         device: item.deviceName,
         action: item.actionLabel,
-        time: formatRelativeTime(item.triggeredAt),
+        time: formatRelativeTime(item.triggeredAt, localeTag),
         confidence: item.confidence,
       })),
-    [historyData]
+    [historyData, localeTag]
   );
 
   const getBindingGestureName = (deviceId, controlId) => {
@@ -144,29 +174,114 @@ function App() {
     (d) => d.connection === 'online' && hasActiveControls(d)
   ).length;
 
-  const updateControlGesture = async (device, control, gestureClassId, gestureName) => {
+  const deactivateSelectedDevice = async () => {
+    if (selectedDevice) await api.clearDeviceBindings(selectedDevice.id);
+  };
+
+  const runControlTest = async (deviceId, controlId) => {
+    const key = `${deviceId}-${controlId}`;
+    if (controlTestTimers.current[key]) {
+      window.clearTimeout(controlTestTimers.current[key]);
+      delete controlTestTimers.current[key];
+    }
+    try {
+      await api.testDeviceControl(deviceId, controlId);
+      setControlTestState((prev) => {
+        if (!prev[key]) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    } catch {
+      setControlTestState((prev) => ({ ...prev, [key]: 'error' }));
+      controlTestTimers.current[key] = window.setTimeout(() => {
+        setControlTestState((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      }, 2000);
+    }
+  };
+
+  const openBindingModal = (device, control) => {
     const controlId = control.id ?? control;
     const controlLabel = control.label ?? control;
+    const currentBinding = bindingsByKey[`${device.id}-${controlId}`];
+    const defaultMode = normalizeBindingTriggerMode(control.triggerMode, 'pulse');
+
+    setBindingModal({
+      deviceId: device.id,
+      deviceName: device.name,
+      controlId,
+      controlLabel,
+      gestureClassId: currentBinding?.gestureClassId ? String(currentBinding.gestureClassId) : '',
+      triggerMode: normalizeBindingTriggerMode(currentBinding?.triggerMode, defaultMode),
+      repeatIntervalMs: normalizeRepeatIntervalMs(currentBinding?.repeatIntervalMs, 600),
+    });
+  };
+
+  const updateBindingModal = (patch) => {
+    setBindingModal((prev) => (prev ? { ...prev, ...patch } : prev));
+  };
+
+  const closeBindingModal = () => {
+    setBindingModal(null);
+  };
+
+  const saveBindingModal = async () => {
+    if (!bindingModal) return;
     try {
       await api.putBinding({
-        deviceId: device.id,
-        controlId,
-        controlLabel,
-        gestureClassId: gestureClassId || null,
+        deviceId: bindingModal.deviceId,
+        controlId: bindingModal.controlId,
+        controlLabel: bindingModal.controlLabel,
+        gestureClassId: bindingModal.gestureClassId ? Number(bindingModal.gestureClassId) : null,
+        triggerMode: normalizeBindingTriggerMode(bindingModal.triggerMode, 'pulse'),
+        repeatIntervalMs: normalizeRepeatIntervalMs(bindingModal.repeatIntervalMs, 600),
       });
+      closeBindingModal();
     } catch {
       /* conflict */
     }
   };
 
-  const deactivateSelectedDevice = async () => {
-    if (selectedDevice) await api.clearDeviceBindings(selectedDevice.id);
+  const activateGestureSet = async (setId) => {
+    if (activatingSetId || setId === activeSetId) return;
+    setActivatingSetId(setId);
+    setActivationError(null);
+    try {
+      await api.setActiveSet(setId);
+      setSelectedGestureSetId(setId);
+      refreshGestureSets();
+    } catch (err) {
+      setActivationError(parseApiError(err));
+    } finally {
+      setActivatingSetId(null);
+    }
   };
 
-  const activateGestureSet = async (setId) => {
-    await api.setActiveSet(setId);
-    setSelectedGestureSetId(setId);
+  const getSetActivationLabel = (setId) => {
+    if (activatingSetId === setId) return t('page.gestures.activating');
+    if (activeSetId === setId) return t('page.gestures.activated');
+    return t('page.gestures.activate');
   };
+
+  const getSetStatusPill = (setId) => {
+    if (activatingSetId === setId) return { text: t('page.gestures.activating'), className: 'pending' };
+    if (activeSetId === setId) return { text: t('page.gestures.activeSet'), className: 'success' };
+    return { text: t('page.gestures.waiting'), className: 'inactive' };
+  };
+
+  useEffect(() => {
+    if (activeView === 'developer' && !devUnlocked) {
+      setActiveView('main');
+    }
+  }, [activeView, devUnlocked]);
+
+  useEffect(() => () => {
+    Object.values(controlTestTimers.current).forEach((timerId) => window.clearTimeout(timerId));
+  }, []);
 
   const handleLogoClick = () => {
     const next = logoClicks + 1;
@@ -175,55 +290,56 @@ function App() {
     logoTimer.current = setTimeout(() => setLogoClicks(0), 2000);
     if (next >= 10) {
       setLogoClicks(0);
+      setDevUnlocked(true);
       setActiveView('developer');
     }
   };
 
-  const radarStatusLabel =
-    summary?.radar?.status === 'ok' ? '정상' : summary?.radar?.connected ? '주의' : '오프라인';
+  const visibleNavItems = devUnlocked ? navItems : navItems.filter((item) => item.id !== 'developer');
+  const radarMetric = getRadarMetric(summary, t);
 
   return (
-    <div className="dashboard">
+    <div className={`dashboard locale-${localeTag.toLowerCase()}`}>
       <aside className="sidebar">
         <div className="brand">
-          <button type="button" className="brand-mark brand-button" onClick={handleLogoClick}>
+          <div className="brand-mark brand-logo-hit" onClick={handleLogoClick} role="presentation">
             <img src={logoImage} alt="WaveHome logo" />
-          </button>
+          </div>
           <div>
-            <strong>WaveHome</strong>
-            <span>Radar Control</span>
+            <strong>{t('brand.name')}</strong>
+            <span>{t('brand.subtitle')}</span>
           </div>
         </div>
 
-        <nav className="nav-list" aria-label="Dashboard views">
-          {navItems.flatMap((item) => {
-            const nodes = [
-              <button
-                className={`nav-item ${item.id === 'developer' ? 'dev-nav' : ''} ${activeView === item.id ? 'active' : ''}`}
-                key={item.id}
-                onClick={() => setActiveView(item.id)}
-                type="button"
-              >
-                <span aria-hidden="true">{item.icon}</span>
-                <span className="nav-label">{item.label}</span>
-              </button>,
-            ];
-            if (item.id === 'developer') {
-              nodes.unshift(<hr key="dev-sep" className="nav-list-dev-sep" />);
-            }
-            return nodes;
-          })}
-        </nav>
+        <DashboardNav
+          items={visibleNavItems}
+          activeView={activeView}
+          onSelect={setActiveView}
+          variant="sidebar"
+        />
+
+        <div className="sidebar-footer">
+          <label className="language-select">
+            <span>{t('language.label')}</span>
+            <select value={localeTag} onChange={(e) => setLocaleTag(e.target.value)}>
+              {SUPPORTED_LOCALES.map((locale) => (
+                <option key={locale} value={locale}>
+                  {t(`language.${locale}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </aside>
 
       <main className="content">
         {activeView === 'main' && (
           <section className="view">
-            <div className="hero">
+            <div className={`hero ${localeTag === 'en-US' ? 'hero-en' : ''}`}>
               <div className="hero-copy">
-                <span className="eyebrow">WAVEHOME DASHBOARD</span>
-                <h1>파도에 몸을 맡기듯 당신의 집이 편안하도록, WaveHome</h1>
-                <p>레이더 센서로 제스처를 인식하고 IoT 기기 상태를 한 화면에서 관리합니다.</p>
+                <span className="eyebrow">{t('hero.eyebrow')}</span>
+                <h1>{t('hero.title')}</h1>
+                <p>{t('hero.description')}</p>
               </div>
               <div className="hero-logo-visual">
                 <img src={logoWithStringImage} alt="WaveHome logo with text" />
@@ -232,25 +348,25 @@ function App() {
 
             <div className="metric-grid">
               <Metric
-                label="Radar 상태"
-                value={radarStatusLabel}
-                detail={summary?.radar?.detail ?? '—'}
+                label={t('metric.radar')}
+                value={radarMetric.value}
+                detail={radarMetric.detail}
                 accent="radar"
               />
               <Metric
-                label="오늘 인식"
-                value={`${summary?.todayRecognitionCount ?? 0}회`}
-                detail="서버 집계"
+                label={t('metric.today')}
+                value={`${summary?.todayRecognitionCount ?? 0}`}
+                detail={t('metric.today.detail')}
               />
               <Metric
-                label="연결된 IoT"
+                label={t('metric.iot')}
                 value={`${connectedDeviceCount}/${iotDevices.length || summary?.iot?.total || 0}`}
-                detail="활성 제어가 있는 온라인 기기"
+                detail={t('metric.iot.detail')}
               />
               <Metric
-                label="활성 제스처"
-                value={activeGestureSet?.name ?? '—'}
-                detail={`${activeGestureSet?.gestureCount ?? 0}개 제스처 사용 가능`}
+                label={t('metric.activeGesture')}
+                value={activeGestureSet?.name ?? t('common.none')}
+                detail={t('metric.activeGesture.detail', { count: activeGestureSet?.gestureCount ?? 0 })}
               />
             </div>
           </section>
@@ -258,55 +374,67 @@ function App() {
 
         {activeView === 'history' && (
           <section className="view">
-            <PageHeader title="제스처 히스토리" description="그동안 인식된 제스처와 연결된 IoT 동작 기록입니다." />
-            <Panel title="인식 로그">
-              <HistoryList items={historyItems} />
+            <PageHeader title={t('page.history.title')} description={t('page.history.description')} />
+            <Panel title={t('page.history.panel')}>
+              <HistoryList items={historyItems} icon={t('history.iconGesture')} />
             </Panel>
           </section>
         )}
 
         {activeView === 'gestures' && (
           <section className="view">
-            <PageHeader title="제스처 목록" description="세트를 선택하면 아래에 제스처가 표시됩니다. 활성 세트는 IoT 제어에 사용됩니다." />
+            <PageHeader title={t('page.gestures.title')} description={t('page.gestures.description')} />
+
+            {activationError && (
+              <div className="activation-error-banner" role="alert">
+                {activationError}
+              </div>
+            )}
 
             <div className="gesture-set-grid">
-              {gestureSets.map((set) => (
-                <article
-                  className={`gesture-set-card ${activeSetId === set.id ? 'active' : ''} ${selectedGestureSetId === set.id ? 'selected' : ''}`}
-                  key={set.id}
-                >
-                  <button
-                    type="button"
-                    className="gesture-set-select"
-                    onClick={() => setSelectedGestureSetId(set.id)}
+              {gestureSets.map((set) => {
+                const statusPill = getSetStatusPill(set.id);
+                const isActiveOnServer = activeSetId === set.id;
+                const isActivating = activatingSetId === set.id;
+                return (
+                  <article
+                    className={`gesture-set-card ${isActiveOnServer ? 'active' : ''} ${selectedGestureSetId === set.id ? 'selected' : ''} ${isActivating ? 'activating' : ''}`}
+                    key={set.id}
                   >
-                    <div>
-                      <span className={`status-pill ${activeSetId === set.id ? 'success' : 'inactive'}`}>
-                        {activeSetId === set.id ? '활성 세트' : '대기'}
-                      </span>
-                      <h2>{set.name}</h2>
-                      <p>{set.description}</p>
-                      <strong>{set.gestureCount}개 제스처</strong>
-                    </div>
-                  </button>
-                  <div className="set-actions">
                     <button
                       type="button"
-                      className={activeSetId === set.id ? 'active' : ''}
-                      onClick={() => activateGestureSet(set.id)}
+                      className="gesture-set-select"
+                      onClick={() => setSelectedGestureSetId(set.id)}
                     >
-                      {activeSetId === set.id ? '활성화됨' : '활성화'}
+                      <div>
+                        <span className={`status-pill ${statusPill.className}`}>
+                          {statusPill.text}
+                        </span>
+                        <h2>{set.name}</h2>
+                        <p>{set.description}</p>
+                        <strong>{t('metric.activeGesture.detail', { count: set.gestureCount })}</strong>
+                      </div>
                     </button>
-                  </div>
-                </article>
-              ))}
+                    <div className="set-actions">
+                      <button
+                        type="button"
+                        className={isActiveOnServer && !isActivating ? 'active' : ''}
+                        disabled={Boolean(activatingSetId)}
+                        onClick={() => activateGestureSet(set.id)}
+                      >
+                        {getSetActivationLabel(set.id)}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
 
             {gestureSetDetail && selectedGestureSetId === gestureSetDetail.id && (
               <div className="gesture-set-detail">
                 <div className="gesture-set-detail-header">
                   <div>
-                    <span className="eyebrow">선택된 세트</span>
+                    <span className="eyebrow">{t('page.gestures.selected')}</span>
                     <h2>{gestureSetDetail.name}</h2>
                     <p>{gestureSetDetail.description}</p>
                   </div>
@@ -318,7 +446,7 @@ function App() {
                       <article className="gesture-card" key={gesture.gestureClassId}>
                         <div>
                           <span className={`status-pill ${gesture.status === 'active' ? 'success' : 'inactive'}`}>
-                            {gesture.status === 'active' ? '활성' : '비활성'}
+                            {gesture.status === 'active' ? t('page.gestures.active') : t('page.gestures.inactive')}
                           </span>
                           <div className="gesture-media" aria-label={`${gesture.name} media preview`}>
                             <div className="gesture-photo">
@@ -332,7 +460,7 @@ function App() {
                   </div>
                 ) : (
                   <div className="empty-state">
-                    <strong>등록된 제스처가 없습니다.</strong>
+                    <strong>{t('page.gestures.empty')}</strong>
                   </div>
                 )}
               </div>
@@ -340,17 +468,17 @@ function App() {
           </section>
         )}
 
-        {activeView === 'developer' && <DevPage />}
+        {activeView === 'developer' && <DevPage localeTag={localeTag} t={t} />}
 
         {activeView === 'devices' && selectedDevice && (
           <section className="view">
-            <PageHeader title="IoT 목록과 상태" description="WaveHome과 연결된 기기의 연결 상태와 현재 전원 상태를 확인합니다." />
+            <PageHeader title={t('page.devices.title')} description={t('page.devices.description')} />
             <div className="active-set-banner">
-              <span>활성 제스처 세트</span>
-              <strong>{activeGestureSet?.name ?? '—'}</strong>
+              <span>{t('page.devices.activeGestureSet')}</span>
+              <strong>{activeGestureSet?.name ?? t('common.none')}</strong>
             </div>
             <div className="iot-control-layout">
-              <Panel title="기기 목록">
+              <Panel title={t('nav.devices')}>
                 <DeviceList
                   items={iotDevices}
                   selectedId={selectedDevice.id}
@@ -359,7 +487,7 @@ function App() {
                 />
               </Panel>
 
-              <Panel title={`${selectedDevice.name} 제어 설정`}>
+              <Panel title={t('page.devices.controlSettings', { name: selectedDevice.name })}>
                 <div className="selected-device-summary">
                   <span className={`device-dot ${getDeviceControlState(selectedDevice)}`} />
                   <div>
@@ -367,7 +495,7 @@ function App() {
                     <span>{selectedDevice.room}</span>
                   </div>
                   <button className="deactivate-button" type="button" onClick={deactivateSelectedDevice}>
-                    전체 비활성
+                    {t('page.devices.deactivateAll')}
                   </button>
                 </div>
 
@@ -376,43 +504,41 @@ function App() {
                     const controlId = control.id ?? control;
                     const controlLabel = control.label ?? control;
                     const binding = bindingsByKey[`${selectedDevice.id}-${controlId}`];
-                    const currentClassId = binding?.gestureClassId ?? '';
+                    const testKey = `${selectedDevice.id}-${controlId}`;
+                    const testStatus = controlTestState[testKey];
+                    const isBound = Boolean(binding?.gestureName);
+                    const configLabel = binding?.gestureName ?? t('page.devices.configure');
 
                     return (
-                      <label className="control-row" key={controlId}>
-                        <span>{controlLabel}</span>
-                        <select
-                          value={currentClassId}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            updateControlGesture(
-                              selectedDevice,
-                              control,
-                              val ? Number(val) : 0,
-                              ''
-                            );
-                          }}
-                        >
-                          <option value="">비활성</option>
-                          {activeSetGesturesList.map((g) => {
-                            const usedElsewhere = Object.entries(bindingsByKey).some(
-                              ([key, b]) =>
-                                key !== `${selectedDevice.id}-${controlId}` &&
-                                b.gestureClassId === g.gestureClassId
-                            );
-                            return (
-                              <option
-                                key={g.gestureClassId}
-                                value={g.gestureClassId}
-                                disabled={usedElsewhere}
-                              >
-                                {g.name}
-                                {usedElsewhere ? ' (사용 중)' : ''}
-                              </option>
-                            );
-                          })}
-                        </select>
-                      </label>
+                      <div className="control-row" key={controlId}>
+                        <div className="control-row-copy">
+                          <span className="control-row-title">{controlLabel}</span>
+                          <div className="control-row-status">
+                            <span className={`binding-state-dot ${isBound ? 'active' : 'inactive'}`} />
+                            <small>{isBound ? t('page.devices.binding.activeStatus') : t('page.devices.binding.inactiveStatus')}</small>
+                          </div>
+                        </div>
+                        <div className="control-row-actions">
+                          <button
+                            type="button"
+                            className="control-config-button"
+                            onClick={() => openBindingModal(selectedDevice, control)}
+                            aria-label={t('page.devices.openConfig')}
+                            title={t('page.devices.openConfig')}
+                          >
+                            <span className="control-config-label">{configLabel}</span>
+                          </button>
+                          {devUnlocked && (
+                            <button
+                              type="button"
+                              className={`control-test-button ${testStatus ?? ''}`}
+                              onClick={() => runControlTest(selectedDevice.id, controlId)}
+                            >
+                              {testStatus === 'error' ? t('page.devices.test.error') : t('page.devices.test')}
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -421,7 +547,54 @@ function App() {
           </section>
         )}
       </main>
+
+      <DashboardNav
+        items={visibleNavItems}
+        activeView={activeView}
+        onSelect={setActiveView}
+        variant="bottom"
+      />
+
+      {bindingModal && (
+        <BindingConfigModal
+          draft={bindingModal}
+          bindingsByKey={bindingsByKey}
+          gestures={activeSetGesturesList}
+          onChange={updateBindingModal}
+          onClose={closeBindingModal}
+          onSave={saveBindingModal}
+          t={t}
+        />
+      )}
     </div>
+  );
+}
+
+function DashboardNav({ items, activeView, onSelect, variant }) {
+  const isBottom = variant === 'bottom';
+  return (
+    <nav
+      className={isBottom ? 'bottom-nav' : 'nav-list sidebar-nav'}
+      aria-label={isBottom ? 'Mobile navigation' : 'Dashboard views'}
+    >
+      {items.flatMap((item) => {
+        const nodes = [
+          <button
+            className={`nav-item ${item.id === 'developer' ? 'dev-nav' : ''} ${activeView === item.id ? 'active' : ''}`}
+            key={item.id}
+            onClick={() => onSelect(item.id)}
+            type="button"
+          >
+            <span aria-hidden="true">{item.icon}</span>
+            <span className="nav-label">{isBottom ? item.shortLabel : item.label}</span>
+          </button>,
+        ];
+        if (!isBottom && item.id === 'developer') {
+          nodes.unshift(<hr key="dev-sep" className="nav-list-dev-sep" />);
+        }
+        return nodes;
+      })}
+    </nav>
   );
 }
 
@@ -447,19 +620,19 @@ function Panel({ title, children }) {
 function PageHeader({ title, description }) {
   return (
     <header className="page-header">
-      <span className="eyebrow">WaveHome Dashboard</span>
+      <span className="eyebrow">WaveHome</span>
       <h1>{title}</h1>
       <p>{description}</p>
     </header>
   );
 }
 
-function HistoryList({ items }) {
+function HistoryList({ items, icon }) {
   return (
     <div className="history-list">
       {items.map((item) => (
         <article className="history-item" key={item.id}>
-          <div className="history-icon">✦</div>
+          <div className="history-icon">{icon}</div>
           <div>
             <strong>{item.gesture}</strong>
             <span>
@@ -491,6 +664,123 @@ function DeviceList({ items, selectedId, onSelect, getControlState }) {
           <span className="device-state">{device.state}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+function BindingConfigModal({ draft, bindingsByKey, gestures, onChange, onClose, onSave, t }) {
+  const currentKey = `${draft.deviceId}-${draft.controlId}`;
+
+  return (
+    <div className="binding-modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="binding-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('page.devices.binding.modalTitle', { name: draft.controlLabel })}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="binding-modal-head">
+          <div>
+            <span className="eyebrow">{draft.deviceName}</span>
+            <h2>{t('page.devices.binding.modalTitle', { name: draft.controlLabel })}</h2>
+            <p>{t('page.devices.binding.modalDescription')}</p>
+          </div>
+          <button type="button" className="binding-modal-close" onClick={onClose} aria-label={t('page.devices.binding.cancel')}>
+            ×
+          </button>
+        </div>
+
+        <div className="binding-modal-body">
+          <section className="binding-modal-section">
+            <h3>{t('page.devices.binding.trigger')}</h3>
+            <div className="binding-trigger-grid">
+              {['pulse', 'toggle', 'repeat'].map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`binding-trigger-card ${draft.triggerMode === mode ? 'active' : ''}`}
+                  onClick={() => onChange({ triggerMode: mode })}
+                >
+                  <strong>{t(`page.devices.triggerMode.${mode}`)}</strong>
+                  <span>{t(`page.devices.triggerMode.${mode}.description`)}</span>
+                </button>
+              ))}
+            </div>
+
+            {draft.triggerMode === 'repeat' && (
+              <label className="binding-repeat-field">
+                <span>{t('page.devices.binding.repeatInterval')}</span>
+                <input
+                  type="number"
+                  min="100"
+                  step="50"
+                  value={draft.repeatIntervalMs}
+                  onChange={(e) =>
+                    onChange({ repeatIntervalMs: normalizeRepeatIntervalMs(e.target.value, 600) })
+                  }
+                />
+                <small>{t('page.devices.binding.repeatHint')}</small>
+              </label>
+            )}
+          </section>
+
+          <section className="binding-modal-section">
+            <h3>{t('page.devices.binding.gesture')}</h3>
+            <div className="binding-gesture-grid">
+              <button
+                type="button"
+                className={`binding-gesture-chip no-image ${draft.gestureClassId ? '' : 'active'}`}
+                onClick={() => onChange({ gestureClassId: '' })}
+              >
+                <div className="binding-gesture-copy">
+                  <span>{t('page.devices.binding.none')}</span>
+                </div>
+              </button>
+              {gestures.map((gesture) => {
+                const usedElsewhere = Object.entries(bindingsByKey).some(
+                  ([key, binding]) =>
+                    key !== currentKey && binding.gestureClassId === gesture.gestureClassId
+                );
+                const active = draft.gestureClassId === String(gesture.gestureClassId);
+                return (
+                  <button
+                    type="button"
+                    key={gesture.gestureClassId}
+                    className={`binding-gesture-chip ${active ? 'active' : ''}`}
+                    disabled={usedElsewhere}
+                    onClick={() => onChange({ gestureClassId: String(gesture.gestureClassId) })}
+                  >
+                    {gesture.imageUrl ? (
+                      <img
+                        className="binding-gesture-thumb"
+                        src={gesture.imageUrl}
+                        alt={gesture.name}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="binding-gesture-thumb placeholder" aria-hidden="true" />
+                    )}
+                    <div className="binding-gesture-copy">
+                      <span>{gesture.name}</span>
+                      {usedElsewhere && <small>{t('page.devices.usedElsewhere')}</small>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+
+        <div className="binding-modal-actions">
+          <button type="button" className="binding-modal-secondary" onClick={onClose}>
+            {t('page.devices.binding.cancel')}
+          </button>
+          <button type="button" className="binding-modal-primary" onClick={onSave}>
+            {t('page.devices.binding.save')}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

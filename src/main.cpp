@@ -8,8 +8,6 @@
 #include "app/api_controller.h"
 #include "app/app_state.h"
 #include "app/ws_controller.h"
-#include "app/pipeline_service.h"
-#include "device/sensor_pipeline.h"
 #include "util/arg_parser.h"
 
 namespace fs = std::filesystem;
@@ -24,17 +22,12 @@ static fs::path resolveSiteRoot(const std::string& cli_path)
 		const auto p = fs::path(cli_path);
 		if (fs::exists(p / "index.html"))
 			return fs::weakly_canonical(p);
-		if (fs::exists(p / "dist" / "index.html"))
-			return fs::weakly_canonical(p / "dist");
 		return fs::weakly_canonical(p);
 	}
 #ifdef WAVE_SITE_ROOT
-	return fs::path(WAVE_SITE_ROOT) / "dist";
+	return fs::path(WAVE_SITE_ROOT);
 #else
 	const auto exe = fs::read_symlink("/proc/self/exe");
-	const auto dist = fs::weakly_canonical(exe.parent_path() / ".." / "site" / "dist");
-	if (fs::exists(dist / "index.html"))
-		return dist;
 	return fs::weakly_canonical(exe.parent_path() / ".." / "site");
 #endif
 }
@@ -58,11 +51,14 @@ static ArgParser makeArgParser()
 		.help("HTTP listen port")
 		.defaultValue(std::to_string(kDefaultPort));
 	parser.addArgument("--site-root")
-		.help("Dashboard static site root (dist/)")
+		.help("Dashboard static site root")
 		.defaultValue("");
 	parser.addArgument("--set-root", "-s")
 		.help("Gesture set directory")
 		.defaultValue("");
+	parser.addArgument("--homebridge-config")
+		.help("Homebridge config.json path (inotify reload)")
+		.defaultValue("/var/lib/homebridge/config.json");
 	return parser;
 }
 
@@ -71,6 +67,7 @@ int main(int argc, char* argv[])
 	unsigned port = kDefaultPort;
 	std::string site_root_arg;
 	std::string gesture_root_arg;
+	std::string homebridge_config_arg;
 
 	try
 	{
@@ -79,6 +76,7 @@ int main(int argc, char* argv[])
 		port = parser.get<unsigned>("port");
 		site_root_arg = parser.get<std::string>("site-root");
 		gesture_root_arg = parser.get<std::string>("set-root");
+		homebridge_config_arg = parser.get<std::string>("homebridge-config");
 	}
 	catch (const std::exception& ex)
 	{
@@ -95,19 +93,22 @@ int main(int argc, char* argv[])
 
 	const auto gestureRoot = resolveGestureRoot(gesture_root_arg);
 
-	AppState::instance().setGestureRoot(gestureRoot.string());
-	AppState::instance().setServerStartedAt(std::chrono::steady_clock::now());
-	if (!AppState::instance().loadRepository())
+	auto& app_state = wave::AppState::instance();
+	auto& app = drogon::app();
+
+	app_state.setGestureRoot(gestureRoot.string());
+	app_state.setServerStartedAt(std::chrono::steady_clock::now());
+	if (!app_state.loadRepository())
 	{
 		LOG_WARN << "Gesture repository not loaded from " << gestureRoot;
 	}
 
-	drogon::app().setDocumentRoot(siteRoot.string());
-	drogon::app().setFileTypes(
+	app.setDocumentRoot(siteRoot.string());
+	app.setFileTypes(
 		{"html", "js", "css", "png", "jpg", "jpeg", "svg", "ico",
 		 "json", "woff", "woff2", "map", "txt", "webm", "mp4"});
 
-	drogon::app().registerPreRoutingAdvice(
+	app.registerPreRoutingAdvice(
 		[](const drogon::HttpRequestPtr& req,
 		   drogon::AdviceCallback&& acb,
 		   drogon::AdviceChainCallback&& accb) {
@@ -135,7 +136,7 @@ int main(int argc, char* argv[])
 			const std::string set_id = rest.substr(0, slash);
 			const std::string rel = rest.substr(slash + 1);
 			const std::filesystem::path file =
-				std::filesystem::path(AppState::instance().gestureRoot()) / set_id / rel;
+				std::filesystem::path(wave::AppState::instance().gestureRoot()) / set_id / rel;
 			if (!std::filesystem::exists(file))
 			{
 				acb(drogon::HttpResponse::newNotFoundResponse());
@@ -147,7 +148,7 @@ int main(int argc, char* argv[])
 	const auto indexPath = siteRoot / "index.html";
 	if (fs::exists(indexPath))
 	{
-		drogon::app().registerPreRoutingAdvice(
+		app.registerPreRoutingAdvice(
 			[indexPath](const drogon::HttpRequestPtr& req,
 						drogon::AdviceCallback&& acb,
 						drogon::AdviceChainCallback&& accb) {
@@ -166,19 +167,31 @@ int main(int argc, char* argv[])
 			});
 	}
 
-	drogon::app().setThreadNum(kMaxThreads);
-	drogon::app().addListener("0.0.0.0", port);
+	app.setThreadNum(kMaxThreads);
+	app.addListener("0.0.0.0", port);
 
 	LOG_INFO << "wave-server: http://0.0.0.0:" << port
 			 << "  site=" << siteRoot << "  gesture_set=" << gestureRoot;
+	app_state.appendDevLog(
+		"info",
+		"wave-server 시작 · 포트 " + std::to_string(port));
 
 	if (fs::exists(gestureRoot))
-		AppState::instance().startSensorPipeline(gestureRoot.string());
+		app_state.startSensorPipeline(gestureRoot.string());
 	else
 		LOG_WARN << "Gesture set root not found: " << gestureRoot;
 
-	drogon::app().run();
-	AppState::instance().stopSensorPipeline();
+	if (fs::exists(homebridge_config_arg))
+	{
+		app_state.startHomebridgeWatcher(homebridge_config_arg);
+		LOG_INFO << "homebridge: watching " << homebridge_config_arg;
+	}
+	else
+		LOG_WARN << "Homebridge config not found: " << homebridge_config_arg;
+
+	app.run();
+	app_state.stopHomebridgeWatcher();
+	app_state.stopSensorPipeline();
 
 	return 0;
 }

@@ -1,23 +1,26 @@
 add_executable(wave-server
     main.cpp
+    core/locale.cpp
+    core/homebridge_watcher.cpp
+    core/homebridge_parser.cpp
     util/arg_parser.cpp
-    util/network.cpp
+    device/network.cpp
+    device/inference_engine.cpp
+    device/retina.cpp
+    device/sensor_pipeline.cpp
+    device/gesture_set_catalog.cpp
+    device/gesture_probability_gate.cpp
     app/app_state.cpp
     app/gesture_repository.cpp
     app/api_controller.cpp
     app/ws_controller.cpp
+    appliance/appliance.cpp
+    appliance/mqtt_transport.cpp
+    appliance/appliance_manager.cpp
+    appliance/tizen_appliance.cpp
+    appliance/tizen_transport.cpp
+    appliance/tuya_appliance.cpp
 )
-
-if(WAVE_BUILD_NCNN)
-    target_compile_definitions(wave-server PRIVATE WAVE_BUILD_NCNN=1)
-    target_sources(wave-server PRIVATE
-        device/inference_engine.cpp
-        device/retina.cpp
-        device/sensor_pipeline.cpp
-        device/gesture_set_catalog.cpp
-        device/gesture_output_stabilizer.cpp
-    )
-endif()
 
 set_target_properties(wave-server PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin"

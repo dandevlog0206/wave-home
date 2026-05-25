@@ -1,9 +1,29 @@
-#include "app_state.h"
+#include "app/app_state.h"
 
 #include <algorithm>
 #include <iomanip>
 #include <sstream>
+
 #include <nlohmann/json.hpp>
+
+WAVE_NAMESPACE_BEGIN
+
+namespace
+{
+	std::optional<appliance::InputTriggerMode> applianceTriggerModeForBinding(
+		const GestureTriggerMode mode)
+	{
+		switch (mode)
+		{
+		case GestureTriggerMode::Toggle:
+			return appliance::InputTriggerMode::Toggle;
+		case GestureTriggerMode::Repeat:
+		case GestureTriggerMode::Pulse:
+		default:
+			return appliance::InputTriggerMode::Pulse;
+		}
+	}
+}
 
 AppState& AppState::instance()
 {
@@ -17,9 +37,35 @@ std::string AppState::gestureRoot() const
 	return m_gestureRoot;
 }
 
+void AppState::startSensorPipeline(const std::string& root)
+{
+	m_sensorPipeline.start(root);
+	std::unordered_map<uint32_t, GestureTriggerConfig> overrides;
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		overrides = bindingTriggerOverridesLocked();
+	}
+	syncSensorTriggerBindings(overrides);
+}
+
+void AppState::stopSensorPipeline()
+{
+	m_sensorPipeline.stop();
+}
+
 bool AppState::reloadSensorActiveSet(const std::string& set_id)
 {
-	return m_sensorPipeline.reloadActiveSet(set_id);
+	const bool ok = m_sensorPipeline.reloadActiveSet(set_id);
+	if (ok)
+	{
+		std::unordered_map<uint32_t, GestureTriggerConfig> overrides;
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			overrides = bindingTriggerOverridesLocked();
+		}
+		syncSensorTriggerBindings(overrides);
+	}
+	return ok;
 }
 
 void AppState::setGestureRoot(const std::string& root)
@@ -51,12 +97,12 @@ void AppState::updateRadar(const RadarState& radar)
 
 void AppState::updateInference(
 	const InferenceSnapshot& inference,
-	const std::vector<wave::GestureChannelDebug>& channels)
+	const std::vector<wave::GestureGateDebug>& gates)
 {
 	{
 		std::lock_guard<std::mutex> lock(m_mutex);
 		m_inference = inference;
-		m_channels = channels;
+		m_gateDebug = gates;
 	}
 	broadcastDevUpdate();
 }
@@ -66,25 +112,57 @@ void AppState::recordGestureTrigger(const uint32_t gesture_class_id, const float
 	if (gesture_class_id == 0)
 		return;
 
+	std::vector<BindingEntry> matched;
 	std::string active_set;
 	std::string gesture_name;
 	{
 		std::lock_guard<std::mutex> lock(m_mutex);
 		active_set = m_gestures.activeSetId();
 		gesture_name = m_gestures.gestureName(active_set, gesture_class_id);
+		for (const auto& b : m_bindings)
+		{
+			if (b.gestureClassId == gesture_class_id)
+				matched.push_back(b);
+		}
 	}
 
-	HistoryEvent ev {};
-	ev.id = 0;
-	ev.gestureClassId = gesture_class_id;
-	ev.gestureName = gesture_name;
-	ev.deviceName = "—";
-	ev.actionLabel = "제스처 인식";
-	ev.triggeredAt = nowIsoUtc();
-	ev.confidence = static_cast<int>(score * 100.f);
-	ev.source = "gesture_binding";
+	if (matched.empty())
+	{
+		HistoryEvent ev {};
+		ev.gestureClassId = gesture_class_id;
+		ev.gestureName = gesture_name;
+		ev.deviceName = "—";
+		ev.actionLabel = "제스처 인식";
+		ev.triggeredAt = nowIsoUtc();
+		ev.confidence = static_cast<int>(score * 100.f);
+		ev.source = "gesture_binding";
+		pushHistory(ev);
+		return;
+	}
 
-	pushHistory(ev);
+	for (const auto& b : matched)
+	{
+		std::string error;
+		const bool ok = m_applianceManager.executeInput(
+			b.deviceId,
+			b.controlId,
+			applianceTriggerModeForBinding(b.triggerMode),
+			&error);
+		HistoryEvent ev {};
+		ev.gestureClassId = gesture_class_id;
+		ev.gestureName = gesture_name;
+		ev.deviceId = b.deviceId;
+		ev.deviceName = m_applianceManager.applianceName(b.deviceId);
+		ev.actionLabel = b.controlLabel + (ok ? "" : " (제어 실패)");
+		ev.triggeredAt = nowIsoUtc();
+		ev.confidence = static_cast<int>(score * 100.f);
+		ev.source = "gesture_binding";
+		pushHistory(ev);
+
+		appendDevLog(
+			ok ? "info" : "warn",
+			(ok ? "IoT 제어 · " : "IoT 제어 실패 · ") + ev.deviceName + " / " + b.controlLabel);
+	}
 }
 
 RadarState AppState::radarSnapshot() const
@@ -99,10 +177,10 @@ InferenceSnapshot AppState::inferenceSnapshot() const
 	return m_inference;
 }
 
-std::vector<wave::GestureChannelDebug> AppState::channelSnapshot() const
+std::vector<wave::GestureGateDebug> AppState::gateSnapshot() const
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
-	return m_channels;
+	return m_gateDebug;
 }
 
 uint32_t AppState::todayRecognitionCount() const
@@ -147,55 +225,157 @@ bool AppState::setBinding(
 	const std::string& device_id,
 	const std::string& control_id,
 	const std::string& control_label,
-	const uint32_t gesture_class_id)
+	const uint32_t gesture_class_id,
+	const GestureTriggerMode trigger_mode,
+	const uint32_t repeat_interval_ms)
 {
-	std::lock_guard<std::mutex> lock(m_mutex);
-
-	for (const auto& b : m_bindings)
+	std::unordered_map<uint32_t, GestureTriggerConfig> overrides;
 	{
-		if (gesture_class_id != 0 && b.gestureClassId == gesture_class_id &&
-		    (b.deviceId != device_id || b.controlId != control_id))
-			return false;
-	}
+		std::lock_guard<std::mutex> lock(m_mutex);
 
-	m_bindings.erase(
-		std::remove_if(
-			m_bindings.begin(),
-			m_bindings.end(),
-			[&](const BindingEntry& b) {
-				return b.deviceId == device_id && b.controlId == control_id;
-			}),
-		m_bindings.end());
+		for (const auto& b : m_bindings)
+		{
+			if (gesture_class_id != 0 && b.gestureClassId == gesture_class_id &&
+			    (b.deviceId != device_id || b.controlId != control_id))
+				return false;
+		}
 
-	if (gesture_class_id != 0)
-	{
-		BindingEntry entry {};
-		entry.deviceId = device_id;
-		entry.controlId = control_id;
-		entry.controlLabel = control_label;
-		entry.gestureClassId = gesture_class_id;
-		entry.gestureName =
-			m_gestures.gestureName(m_gestures.activeSetId(), gesture_class_id);
-		m_bindings.push_back(entry);
+		m_bindings.erase(
+			std::remove_if(
+				m_bindings.begin(),
+				m_bindings.end(),
+				[&](const BindingEntry& b) {
+					return b.deviceId == device_id && b.controlId == control_id;
+				}),
+			m_bindings.end());
+
+		if (gesture_class_id != 0)
+		{
+			BindingEntry entry {};
+			entry.deviceId = device_id;
+			entry.controlId = control_id;
+			entry.controlLabel = control_label;
+			entry.gestureClassId = gesture_class_id;
+			entry.gestureName =
+				m_gestures.gestureName(m_gestures.activeSetId(), gesture_class_id);
+			entry.triggerMode = trigger_mode;
+			entry.repeatIntervalMs = std::max<uint32_t>(100, repeat_interval_ms);
+			m_bindings.push_back(entry);
+		}
+		overrides = bindingTriggerOverridesLocked();
 	}
+	syncSensorTriggerBindings(overrides);
 	return true;
 }
 
 void AppState::clearBindingsForDevice(const std::string& device_id)
 {
-	std::lock_guard<std::mutex> lock(m_mutex);
-	m_bindings.erase(
-		std::remove_if(
-			m_bindings.begin(),
-			m_bindings.end(),
-			[&](const BindingEntry& b) { return b.deviceId == device_id; }),
-		m_bindings.end());
+	std::unordered_map<uint32_t, GestureTriggerConfig> overrides;
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_bindings.erase(
+			std::remove_if(
+				m_bindings.begin(),
+				m_bindings.end(),
+				[&](const BindingEntry& b) { return b.deviceId == device_id; }),
+			m_bindings.end());
+		overrides = bindingTriggerOverridesLocked();
+	}
+	syncSensorTriggerBindings(overrides);
 }
 
 void AppState::clearAllBindings()
 {
-	std::lock_guard<std::mutex> lock(m_mutex);
-	m_bindings.clear();
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_bindings.clear();
+	}
+	syncSensorTriggerBindings({});
+}
+
+bool AppState::sensorPipelineRunning() const
+{
+	return m_sensorPipeline.isRunning();
+}
+
+void AppState::startHomebridgeWatcher(const std::string& config_path)
+{
+	stopHomebridgeWatcher();
+	m_homebridge_watcher = std::make_unique<wave::core::HomebridgeWatcher>(
+		m_applianceManager,
+		config_path);
+	m_homebridge_watcher->start([this](const std::string& msg) { appendDevLog("info", msg); });
+}
+
+void AppState::stopHomebridgeWatcher()
+{
+	if (m_homebridge_watcher)
+	{
+		m_homebridge_watcher->stop();
+		m_homebridge_watcher.reset();
+	}
+}
+
+nlohmann::json AppState::appliancesApiJson(const std::string_view locale_tag) const
+{
+	auto body = m_applianceManager.appliancesJson(locale_tag);
+	const auto binding_list = bindings();
+	for (auto& item : body["items"])
+	{
+		const std::string device_id = item["id"];
+		bool has = false;
+		for (const auto& b : binding_list)
+		{
+			if (b.deviceId == device_id)
+			{
+				has = true;
+				break;
+			}
+		}
+		item["hasActiveBindings"] = has;
+	}
+	body["activeGestureSetId"] = gestures().activeSetId();
+	return body;
+}
+
+std::unordered_map<uint32_t, GestureTriggerConfig> AppState::bindingTriggerOverridesLocked() const
+{
+	std::unordered_map<uint32_t, GestureTriggerConfig> overrides;
+	const auto* active_set = m_gestures.findSet(m_gestures.activeSetId());
+	for (const auto& binding : m_bindings)
+	{
+		GestureTriggerConfig config {};
+		if (active_set)
+		{
+			if (const auto it = active_set->triggersByClassId.find(binding.gestureClassId);
+				it != active_set->triggersByClassId.end())
+			{
+				config = it->second;
+			}
+		}
+		config.mode = binding.triggerMode;
+		config.repeatIntervalMs = binding.repeatIntervalMs;
+		overrides[binding.gestureClassId] = config;
+	}
+	return overrides;
+}
+
+void AppState::syncSensorTriggerBindings(
+	const std::unordered_map<uint32_t, GestureTriggerConfig>& overrides)
+{
+	if (m_sensorPipeline.isRunning())
+		m_sensorPipeline.reloadTriggerBindings(overrides);
+}
+
+void AppState::appendDevLog(const std::string& level, const std::string& message)
+{
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_devLogs.push_back({nowIsoUtc(), level, message});
+		while (m_devLogs.size() > 300)
+			m_devLogs.pop_front();
+	}
+	broadcastDevUpdate();
 }
 
 void AppState::registerDevSocket(const drogon::WebSocketConnectionPtr& conn)
@@ -232,14 +412,16 @@ std::string AppState::buildDevJson() const
 {
 	RadarState radar;
 	InferenceSnapshot inf;
-	std::vector<wave::GestureChannelDebug> channels;
+	std::vector<wave::GestureGateDebug> gates;
+	std::deque<DevLogLine> logs;
 	int64_t uptime = 0;
 	std::string active_set;
 	{
 		std::lock_guard<std::mutex> lock(m_mutex);
 		radar = m_radar;
 		inf = m_inference;
-		channels = m_channels;
+		gates = m_gateDebug;
+		logs = m_devLogs;
 		if (m_serverStarted.time_since_epoch().count() != 0)
 		{
 			uptime = std::chrono::duration_cast<std::chrono::seconds>(
@@ -262,6 +444,7 @@ std::string AppState::buildDevJson() const
 		{"frameRateHz", radar.frameRateHz},
 		{"targetCount", radar.targetCount},
 		{"lastPacketAt", radar.lastPacketAt},
+		{"reconnectCountdownSec", radar.reconnectCountdownSec},
 	};
 	j["probabilities"] = inf.probabilities;
 	if (const auto* set = AppState::instance().gestures().findSet(active_set))
@@ -277,22 +460,32 @@ std::string AppState::buildDevJson() const
 		{"sequenceLength", inf.sequenceLength},
 		{"ready", inf.sequenceReady},
 	};
+	j["logs"] = nlohmann::json::array();
+	for (const auto& line : logs)
+	{
+		j["logs"].push_back({
+			{"at", line.at},
+			{"level", line.level},
+			{"message", line.message},
+		});
+	}
 	j["channels"] = nlohmann::json::array();
-	for (const auto& ch : channels)
+	for (const auto& ch : gates)
 	{
 		j["channels"].push_back({
 			{"gestureClassId", ch.gestureClassId},
 			{"score", ch.score},
 			{"state", ch.state},
-			{"mode", ch.mode},
+			{"triggerMode", ch.triggerMode},
 			{"highThreshold", ch.highThreshold},
 			{"lowThreshold", ch.lowThreshold},
 			{"cooldownMs", ch.cooldownMs},
 			{"minHighHoldMs", ch.minHighHoldMs},
 			{"minLowHoldMs", ch.minLowHoldMs},
+			{"repeatIntervalMs", ch.repeatIntervalMs},
 			{"holdProgressMs", ch.holdProgressMs},
 			{"holdRequiredMs", ch.holdRequiredMs},
-			{"toggleOutput", ch.toggleOutput},
+			{"ready", ch.ready},
 		});
 	}
 	return j.dump();
@@ -333,3 +526,5 @@ std::string AppState::nowIsoUtc() const
 		<< '.' << std::setw(3) << std::setfill('0') << ms.count() << 'Z';
 	return oss.str();
 }
+
+WAVE_NAMESPACE_END

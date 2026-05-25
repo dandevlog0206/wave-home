@@ -886,10 +886,15 @@ void InferenceEngine::enqueueFrame(const std::vector<Point>& points, FrameIdx fr
 	m_impl->trimQueueIfNeeded();
 }
 
+void InferenceEngine::enqueueFrame(std::vector<Point>&& points, FrameIdx frame_idx)
+{
+	enqueueFrame(points, frame_idx);
+}
+
 void InferenceEngine::enqueueFrame(const Point* points, const size_t point_count, FrameIdx frame_idx)
 {
 	std::vector<Point> vec(points, points + point_count);
-	enqueueFrame(vec, frame_idx);
+	enqueueFrame(std::move(vec), frame_idx);
 }
 
 size_t InferenceEngine::getQueuedFrameCount() const

@@ -7,7 +7,7 @@
 - **베이스 URL**: `http://<host>:<port>/api/v1`
 - **기본 포트**: `8500` (`wave-server --port`로 변경 가능)
 
-정적 UI는 기존처럼 Drogon이 `site/dist/`를 서빙하고, API는 `/api/v1/*` 경로로 추가합니다.
+정적 UI는 Drogon이 `site/`를 직접 서빙하고, API는 `/api/v1/*` 경로로 추가합니다.
 
 ---
 
@@ -601,7 +601,7 @@ REGISTER_HANDLER_DELETE("/api/v1/bindings", ...);
 REGISTER_HANDLER_DELETE("/api/v1/bindings/all", ...);
 ```
 
-정적 파일(`site/dist`)과 API 경로가 겹치지 않도록 `/api/` prefix를 유지합니다.
+정적 파일(`site/`)과 API 경로가 겹치지 않도록 `/api/` prefix를 유지합니다.
 
 ---
 

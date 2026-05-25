@@ -1,8 +1,9 @@
 #pragma once
 
 #include "gesture_trigger_config.h"
-
 #include <string>
+
+WAVE_NAMESPACE_BEGIN
 
 class GestureSetCatalog
 {
@@ -19,3 +20,5 @@ private:
 	std::string m_activeSetId;
 	GestureSetManifest m_active;
 };
+
+WAVE_NAMESPACE_END

@@ -2,7 +2,9 @@
 
 #include "app_state.h"
 
-void DevWsController::handleNewConnection(
+WAVE_NAMESPACE_BEGIN
+
+void WebSocketController::handleNewConnection(
 	const drogon::HttpRequestPtr&,
 	const drogon::WebSocketConnectionPtr& conn)
 {
@@ -11,7 +13,9 @@ void DevWsController::handleNewConnection(
 		conn->send(AppState::instance().buildDevJson());
 }
 
-void DevWsController::handleConnectionClosed(const drogon::WebSocketConnectionPtr& conn)
+void WebSocketController::handleConnectionClosed(const drogon::WebSocketConnectionPtr& conn)
 {
 	AppState::instance().unregisterDevSocket(conn);
 }
+
+WAVE_NAMESPACE_END

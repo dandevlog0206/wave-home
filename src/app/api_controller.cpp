@@ -1,10 +1,16 @@
-#include "api_controller.h"
+#include "app/api_controller.h"
 
+#include <algorithm>
 #include <filesystem>
-#include <nlohmann/json.hpp>
-#include "app_state.h"
-#include "pipeline_service.h"
+#include <optional>
+#include <string>
 
+#include <nlohmann/json.hpp>
+
+#include "app/app_state.h"
+#include "core/locale.h"
+
+WAVE_NAMESPACE_BEGIN
 
 namespace
 {
@@ -18,59 +24,54 @@ namespace
 	}
 
 	drogon::HttpResponsePtr errorResponse(
+		const std::string& locale_tag,
 		const std::string& code,
-		const std::string& message,
+		const std::string_view message_key,
 		drogon::HttpStatusCode status = drogon::k400BadRequest)
 	{
-		return jsonResponse({{"error", {{"code", code}, {"message", message}}}}, status);
+		return jsonResponse(
+			{{"error",
+				{{"code", code},
+					{"message", core::locale::text(locale_tag, message_key)}}}},
+			status);
 	}
 
-	nlohmann::json dummyDevicesJson()
+	std::string requestLocale(const drogon::HttpRequestPtr& req)
 	{
-		return {
-			{"items",
-				{
-					{{"id", "light-living"},
-						{"name", "조명"},
-						{"room", "거실"},
-						{"state", "켜짐"},
-						{"connection", "online"},
-						{"controls", {{{"id", "power"}, {"label", "전원 on/off"}}}},
-						{"hasActiveBindings", false}},
-					{{"id", "tv-living"},
-						{"name", "TV"},
-						{"room", "거실"},
-						{"state", "켜짐"},
-						{"connection", "online"},
-						{"controls",
-							{
-								{{"id", "power"}, {"label", "전원 on/off"}},
-								{{"id", "volume_up"}, {"label", "볼륨 up"}},
-								{{"id", "volume_down"}, {"label", "볼륨 down"}},
-								{{"id", "channel_up"}, {"label", "채널 up"}},
-								{{"id", "channel_down"}, {"label", "채널 down"}},
-							}},
-						{"hasActiveBindings", false}},
-					{{"id", "ac-bedroom"},
-						{"name", "에어컨"},
-						{"room", "침실"},
-						{"state", "켜짐"},
-						{"connection", "online"},
-						{"controls", {{{"id", "power"}, {"label", "전원 on/off"}}}},
-						{"hasActiveBindings", false}},
-					{{"id", "doorlock-entrance"},
-						{"name", "도어락"},
-						{"room", "현관"},
-						{"state", "꺼짐"},
-						{"connection", "online"},
-						{"controls",
-							{
-								{{"id", "lock"}, {"label", "잠금"}},
-								{{"id", "unlock"}, {"label", "잠금 해제"}},
-							}},
-						{"hasActiveBindings", false}},
-				}},
-			{"activeGestureSetId", AppState::instance().gestures().activeSetId()}};
+		if (req)
+		{
+			const auto explicit_locale = req->getHeader("X-Wave-Locale");
+			if (!explicit_locale.empty())
+				return core::locale::resolveTag(explicit_locale);
+			const auto accept_language = req->getHeader("Accept-Language");
+			if (!accept_language.empty())
+				return core::locale::resolveTag(accept_language);
+		}
+		return "en-US";
+	}
+
+	std::string radarValue(const std::string& locale_tag, const RadarState& radar)
+	{
+		if (radar.connected && radar.status == "ok")
+			return core::locale::text(locale_tag, core::locale::key::kRadarStatusOk);
+		if (radar.status == "connecting")
+			return core::locale::text(locale_tag, core::locale::key::kRadarStatusConnecting);
+		return core::locale::text(locale_tag, core::locale::key::kRadarStatusOffline);
+	}
+
+	std::string radarDetail(const std::string& locale_tag, const RadarState& radar)
+	{
+		if (radar.reconnectCountdownSec > 0)
+		{
+			return core::locale::format(
+				locale_tag,
+				core::locale::key::kRadarDetailConnectingCountdown,
+				{{"seconds", std::to_string(radar.reconnectCountdownSec)}});
+		}
+
+		if (!radar.detail.empty())
+			return core::locale::text(locale_tag, radar.detail);
+		return core::locale::text(locale_tag, core::locale::key::kRadarDetailDisconnected);
 	}
 
 	bool gestureBound(uint32_t class_id)
@@ -80,10 +81,16 @@ namespace
 				return true;
 		return false;
 	}
+
+	std::string triggerModeName(const GestureTriggerMode mode)
+	{
+		return std::string(gestureTriggerModeName(mode));
+	}
 }
 
-void ApiController::dashboardSummary(const drogon::HttpRequestPtr&, HTTPCallback&& callback)
+void ApiController::dashboardSummary(const drogon::HttpRequestPtr& req, HTTPCallback&& callback)
 {
+	const auto locale_tag = requestLocale(req);
 	const auto radar = AppState::instance().radarSnapshot();
 	const auto& repo = AppState::instance().gestures();
 	const auto* active = repo.findSet(repo.activeSetId());
@@ -95,14 +102,17 @@ void ApiController::dashboardSummary(const drogon::HttpRequestPtr&, HTTPCallback
 
 	nlohmann::json body = {
 		{"radar",
-			{{"status", radar.status},
-				{"detail", radar.detail},
+			{{"status", radarValue(locale_tag, radar)},
+				{"detail", radarDetail(locale_tag, radar)},
 				{"connected", radar.connected},
 				{"lastPacketAt", radar.lastPacketAt},
 				{"frameRateHz", radar.frameRateHz},
-				{"targetCount", radar.targetCount}}},
+				{"targetCount", radar.targetCount},
+				{"reconnectCountdownSec", radar.reconnectCountdownSec}}},
 		{"todayRecognitionCount", AppState::instance().todayRecognitionCount()},
-		{"iot", {{"connectedActive", bound_devices}, {"total", 4}}},
+		{"iot",
+			{{"connectedActive", bound_devices},
+				{"total", static_cast<int>(AppState::instance().applianceManager().applianceCount())}}},
 		{"activeGestureSet",
 			{{"id", repo.activeSetId()},
 				{"name", active ? active->name : repo.activeSetId()},
@@ -155,12 +165,20 @@ void ApiController::gestureSets(const drogon::HttpRequestPtr&, HTTPCallback&& ca
 	callback(jsonResponse({{"activeSetId", repo.activeSetId()}, {"items", items}}));
 }
 
-void ApiController::gestureSetDetail(const drogon::HttpRequestPtr&, HTTPCallback&& callback, const std::string& setId)
+void ApiController::gestureSetDetail(
+	const drogon::HttpRequestPtr& req,
+	HTTPCallback&& callback,
+	const std::string& setId)
 {
+	const auto locale_tag = requestLocale(req);
 	const auto* set = AppState::instance().gestures().findSet(setId);
 	if (!set)
 	{
-		callback(errorResponse("NOT_FOUND", "gesture set not found", drogon::k404NotFound));
+		callback(errorResponse(
+			locale_tag,
+			"NOT_FOUND",
+			core::locale::key::kErrorGestureSetNotFound,
+			drogon::k404NotFound));
 		return;
 	}
 
@@ -189,46 +207,85 @@ void ApiController::gestureSetDetail(const drogon::HttpRequestPtr&, HTTPCallback
 
 void ApiController::setActiveGestureSet(const drogon::HttpRequestPtr& req, HTTPCallback&& callback)
 {
+	const auto locale_tag = requestLocale(req);
 	const auto json = req->getJsonObject();
 	if (!json || !json->isMember("setId"))
 	{
-		callback(errorResponse("BAD_REQUEST", "setId required"));
+		callback(errorResponse(
+			locale_tag,
+			"BAD_REQUEST",
+			core::locale::key::kErrorSetIdRequired));
 		return;
 	}
 
 	const std::string set_id = (*json)["setId"].asString();
 	if (!AppState::instance().gestures().findSet(set_id))
 	{
-		callback(errorResponse("NOT_FOUND", "gesture set not found", drogon::k404NotFound));
+		callback(errorResponse(
+			locale_tag,
+			"NOT_FOUND",
+			core::locale::key::kErrorGestureSetNotFound,
+			drogon::k404NotFound));
 		return;
 	}
 
-	AppState::instance().gestures().setActiveSetId(set_id);
-	AppState::instance().clearAllBindings();
-	AppState::instance().reloadSensorActiveSet(set_id);
+	auto& state = AppState::instance();
+	if (state.sensorPipelineRunning() && !state.reloadSensorActiveSet(set_id))
+	{
+		state.appendDevLog("error", "제스처 세트 활성화 실패: " + set_id);
+		callback(errorResponse(
+			locale_tag,
+			"ACTIVATION_FAILED",
+			core::locale::key::kErrorActivationFailed,
+			drogon::k503ServiceUnavailable));
+		return;
+	}
+
+	state.gestures().setActiveSetId(set_id);
+	state.clearAllBindings();
+	state.appendDevLog("info", "활성 제스처 세트: " + set_id);
 
 	callback(jsonResponse({{"activeSetId", set_id}, {"bindingsCleared", true}}));
 }
 
-void ApiController::devices(const drogon::HttpRequestPtr&, HTTPCallback&& callback)
+void ApiController::devices(const drogon::HttpRequestPtr& req, HTTPCallback&& callback)
 {
-	auto body = dummyDevicesJson();
-	const auto bindings = AppState::instance().bindings();
-	for (auto& item : body["items"])
+	callback(jsonResponse(AppState::instance().appliancesApiJson(requestLocale(req))));
+}
+
+void ApiController::testDeviceControl(
+	const drogon::HttpRequestPtr& req,
+	HTTPCallback&& callback,
+	const std::string& deviceId,
+	const std::string& controlId)
+{
+	const auto locale_tag = requestLocale(req);
+	auto& state = AppState::instance();
+	if (!state.applianceManager().hasAppliance(deviceId))
 	{
-		const std::string device_id = item["id"];
-		bool has = false;
-		for (const auto& b : bindings)
-		{
-			if (b.deviceId == device_id)
-			{
-				has = true;
-				break;
-			}
-		}
-		item["hasActiveBindings"] = has;
+		callback(errorResponse(
+			locale_tag,
+			"NOT_FOUND",
+			core::locale::key::kErrorDeviceNotFound,
+			drogon::k404NotFound));
+		return;
 	}
-	callback(jsonResponse(body));
+
+	std::string error;
+	const bool ok = state.applianceManager().executeInput(deviceId, controlId, std::nullopt, &error);
+	if (!ok)
+	{
+		state.appendDevLog("warn", "테스트 제어 실패 · " + deviceId + " / " + controlId);
+		callback(errorResponse(
+			locale_tag,
+			"CONTROL_FAILED",
+			core::locale::key::kErrorControlFailed,
+			drogon::k503ServiceUnavailable));
+		return;
+	}
+
+	state.appendDevLog("info", "테스트 제어 · " + deviceId + " / " + controlId);
+	callback(jsonResponse({{"ok", true}, {"deviceId", deviceId}, {"controlId", controlId}}));
 }
 
 void ApiController::bindings(const drogon::HttpRequestPtr&, HTTPCallback&& callback)
@@ -242,6 +299,8 @@ void ApiController::bindings(const drogon::HttpRequestPtr&, HTTPCallback&& callb
 			{"controlLabel", b.controlLabel},
 			{"gestureClassId", b.gestureClassId},
 			{"gestureName", b.gestureName},
+			{"triggerMode", triggerModeName(b.triggerMode)},
+			{"repeatIntervalMs", b.repeatIntervalMs},
 		});
 	}
 	callback(jsonResponse({
@@ -255,21 +314,39 @@ void ApiController::putBinding(const drogon::HttpRequestPtr& req, HTTPCallback&&
 	const auto json = req->getJsonObject();
 	if (!json || !json->isMember("deviceId") || !json->isMember("controlId"))
 	{
-		callback(errorResponse("BAD_REQUEST", "deviceId and controlId required"));
+		callback(errorResponse(
+			requestLocale(req),
+			"BAD_REQUEST",
+			core::locale::key::kErrorDeviceIdControlIdRequired));
 		return;
 	}
 
 	const std::string device_id = (*json)["deviceId"].asString();
 	const std::string control_id = (*json)["controlId"].asString();
 	const std::string control_label = json->get("controlLabel", control_id).asString();
+	const GestureTriggerMode trigger_mode = gestureTriggerModeFromString(
+		json->get("triggerMode", "pulse").asString());
+	const uint32_t repeat_interval_ms = std::max<uint32_t>(
+		100u,
+		json->get("repeatIntervalMs", 600).asUInt());
 
 	uint32_t gesture_class_id = 0;
 	if (json->isMember("gestureClassId") && !(*json)["gestureClassId"].isNull())
 		gesture_class_id = (*json)["gestureClassId"].asUInt();
 
-	if (!AppState::instance().setBinding(device_id, control_id, control_label, gesture_class_id))
+	if (!AppState::instance().setBinding(
+			device_id,
+			control_id,
+			control_label,
+			gesture_class_id,
+			trigger_mode,
+			repeat_interval_ms))
 	{
-		callback(errorResponse("CONFLICT", "gesture already assigned", drogon::k409Conflict));
+		callback(errorResponse(
+			requestLocale(req),
+			"CONFLICT",
+			core::locale::key::kErrorGestureAlreadyAssigned,
+			drogon::k409Conflict));
 		return;
 	}
 
@@ -277,6 +354,8 @@ void ApiController::putBinding(const drogon::HttpRequestPtr& req, HTTPCallback&&
 		{"deviceId", device_id},
 		{"controlId", control_id},
 		{"gestureClassId", gesture_class_id},
+		{"triggerMode", triggerModeName(trigger_mode)},
+		{"repeatIntervalMs", repeat_interval_ms},
 	}));
 }
 
@@ -285,7 +364,10 @@ void ApiController::deleteBinding(const drogon::HttpRequestPtr& req, HTTPCallbac
 	const auto device_id = req->getOptionalParameter<std::string>("deviceId");
 	if (!device_id)
 	{
-		callback(errorResponse("BAD_REQUEST", "deviceId required"));
+		callback(errorResponse(
+			requestLocale(req),
+			"BAD_REQUEST",
+			core::locale::key::kErrorDeviceIdRequired));
 		return;
 	}
 	AppState::instance().clearBindingsForDevice(*device_id);
@@ -301,3 +383,5 @@ void ApiController::deleteAllBindings(const drogon::HttpRequestPtr&, HTTPCallbac
 	resp->setStatusCode(drogon::k204NoContent);
 	callback(resp);
 }
+
+WAVE_NAMESPACE_END
