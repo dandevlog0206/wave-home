@@ -79,11 +79,13 @@ echo "[3/4] Building wave-home"
 cmake --build "${BUILD_DIR}" -j"${JOBS}"
 
 echo "[4/4] Staging package contents"
+cp -a "${ROOT}/config" "${PACKAGE_DIR}/config"
 cp -a "${ROOT}/site" "${PACKAGE_DIR}/site"
 cp -a "${ROOT}/gesture_set" "${PACKAGE_DIR}/gesture_set"
 
 tar -C "${PACKAGE_DIR}" -czf "${TARBALL}" \
   bin \
+  config \
   site \
   gesture_set
 

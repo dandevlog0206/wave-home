@@ -8,23 +8,41 @@
 
 ## 1. GitHub에서 소스 받기
 
-아직 저장소를 업로드하기 전 단계라면 이 문서를 먼저 넣어두고, 이후 GitHub URL만 실제 값으로 바꾸면 됩니다.
+이 저장소는 `thirdparty/` 아래에 Git 서브모듈을 포함합니다.  
+따라서 가능하면 ZIP 다운로드보다 `git clone --recurse-submodules` 방식을 권장합니다.
 
-### 방법 A. `git clone`
+### 방법 A. `git clone --recurse-submodules`
 
 ```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
+git clone --recurse-submodules https://github.com/dandevlog0206/wave-home.git
 cd wave-home
 ```
 
 예시:
 
 ```bash
-git clone https://github.com/<your-account>/wave-home.git
+git clone --recurse-submodules https://github.com/dandevlog0206/wave-home.git
 cd wave-home
 ```
 
+이미 일반 `git clone`으로 받은 경우에는 프로젝트 루트에서 서브모듈을 추가로 받아옵니다.
+
+```bash
+git submodule update --init --recursive
+```
+
+현재 빌드에 필요한 주요 서브모듈은 다음과 같습니다.
+
+- `thirdparty/drogon`
+- `thirdparty/drogon/trantor`
+- `thirdparty/asio`
+- `thirdparty/ncnn`
+- `thirdparty/json`
+
 ### 방법 B. GitHub ZIP 다운로드
+
+GitHub의 `Download ZIP`은 일반적으로 서브모듈 내용을 포함하지 않습니다.  
+따라서 ZIP만 받아서는 바로 빌드되지 않을 수 있습니다.
 
 1. GitHub 저장소 페이지로 이동합니다.
 2. `Code` 버튼을 누릅니다.
@@ -35,6 +53,12 @@ cd wave-home
 unzip wave-home-main.zip
 cd wave-home-main
 ```
+
+이 방식으로 받았다면 추가로 아래 중 하나가 필요합니다.
+
+- 서브모듈이 포함된 별도 배포 압축 사용
+- 같은 버전의 서브모듈 디렉터리를 직접 채우기
+- 가장 간단하게는 다시 `git clone --recurse-submodules`로 받기
 
 ## 2. 시스템 패키지 설치
 
@@ -121,12 +145,19 @@ chmod +x ./script/build_pi5.sh ./script/build_site.sh ./script/build_server.sh
 http://<raspberry-pi-ip>:8500
 ```
 
-## 7. Homebridge 설정 파일 지정
+이제 서버는 기본적으로 `config/` 아래 두 파일을 사용합니다.
 
-Homebridge 설정 파일 경로를 직접 지정하려면:
+- `config/appliances.json`
+- `config/server_state.json`
+
+패키지된 형태로 실행할 때도 `bin/wave-server` 기준 `../config`를 자동으로 찾습니다.
+
+## 7. 경로 지정
+
+설정 디렉터리를 직접 지정하려면:
 
 ```bash
-./bin/wave-server --homebridge-config /var/lib/homebridge/config.json
+./bin/wave-server --config-root ./config
 ```
 
 정적 사이트 경로를 명시하고 싶다면:
@@ -166,3 +197,17 @@ chmod +x ./script/build_pi5.sh ./script/build_site.sh ./script/build_server.sh
 rm -rf build
 ./script/build_pi5.sh
 ```
+
+### 서브모듈 관련 파일이 없다고 나오는 경우
+
+예를 들어 `thirdparty/drogon/trantor` 또는 `thirdparty/asio` 관련 오류가 나면
+서브모듈이 내려받아지지 않은 상태일 가능성이 큽니다.
+
+프로젝트 루트에서 다시 실행합니다.
+
+```bash
+git submodule update --init --recursive
+```
+
+이미 ZIP으로 받았다면 이 방법이 어려울 수 있으므로, 저장소를 다시
+`git clone --recurse-submodules`로 받는 편이 가장 확실합니다.

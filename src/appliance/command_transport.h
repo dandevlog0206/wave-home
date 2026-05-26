@@ -24,6 +24,7 @@ public:
 	virtual ~ICommandTransport() = default;
 
 	virtual bool publish(const std::string& channel, const std::string& payload) = 0;
+	virtual void primeConnection() {}
 	virtual TransportConnectionState connectionState() const = 0;
 	virtual std::string lastError() const = 0;
 	virtual nlohmann::json debugJson() const = 0;

@@ -23,6 +23,7 @@ public:
 	TizenCommandTransport& operator=(const TizenCommandTransport&) = delete;
 
 	bool publish(const std::string& channel, const std::string& payload) override;
+	void primeConnection() override;
 	TransportConnectionState connectionState() const override;
 	std::string lastError() const override;
 	nlohmann::json debugJson() const override;

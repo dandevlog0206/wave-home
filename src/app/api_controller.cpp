@@ -230,7 +230,8 @@ void ApiController::setActiveGestureSet(const drogon::HttpRequestPtr& req, HTTPC
 	}
 
 	auto& state = AppState::instance();
-	if (state.sensorPipelineRunning() && !state.reloadSensorActiveSet(set_id))
+	bool bindings_pruned = false;
+	if (!state.setActiveGestureSet(set_id, &bindings_pruned, nullptr))
 	{
 		state.appendDevLog("error", "제스처 세트 활성화 실패: " + set_id);
 		callback(errorResponse(
@@ -241,11 +242,9 @@ void ApiController::setActiveGestureSet(const drogon::HttpRequestPtr& req, HTTPC
 		return;
 	}
 
-	state.gestures().setActiveSetId(set_id);
-	state.clearAllBindings();
 	state.appendDevLog("info", "활성 제스처 세트: " + set_id);
 
-	callback(jsonResponse({{"activeSetId", set_id}, {"bindingsCleared", true}}));
+	callback(jsonResponse({{"activeSetId", set_id}, {"bindingsCleared", false}, {"bindingsPruned", bindings_pruned}}));
 }
 
 void ApiController::devices(const drogon::HttpRequestPtr& req, HTTPCallback&& callback)
@@ -334,7 +333,19 @@ void ApiController::putBinding(const drogon::HttpRequestPtr& req, HTTPCallback&&
 	if (json->isMember("gestureClassId") && !(*json)["gestureClassId"].isNull())
 		gesture_class_id = (*json)["gestureClassId"].asUInt();
 
-	if (!AppState::instance().setBinding(
+	auto& state = AppState::instance();
+	if (!state.applianceManager().hasAppliance(device_id) ||
+		!state.applianceManager().hasInput(device_id, control_id))
+	{
+		callback(errorResponse(
+			requestLocale(req),
+			"NOT_FOUND",
+			core::locale::key::kErrorDeviceNotFound,
+			drogon::k404NotFound));
+		return;
+	}
+
+	if (!state.setBinding(
 			device_id,
 			control_id,
 			control_label,

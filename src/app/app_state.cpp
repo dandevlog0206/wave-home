@@ -1,10 +1,16 @@
 #include "app/app_state.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <iomanip>
 #include <sstream>
+#include <unordered_set>
 
+#include <drogon/drogon.h>
 #include <nlohmann/json.hpp>
+
+#include "core/appliance_config_store.h"
+#include "core/server_state_store.h"
 
 WAVE_NAMESPACE_BEGIN
 
@@ -31,10 +37,130 @@ AppState& AppState::instance()
 	return state;
 }
 
+void AppState::setConfigRoot(const std::string& root)
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	m_configRoot = root;
+}
+
 std::string AppState::gestureRoot() const
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
 	return m_gestureRoot;
+}
+
+bool AppState::loadAppliancesConfig(std::string* error)
+{
+	std::string path;
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		path = applianceConfigPathLocked();
+	}
+
+	try
+	{
+		core::ApplianceConfigStore store(path);
+		auto document = store.load();
+		m_applianceManager.loadFromDefinitions(std::move(document.appliances));
+
+		std::vector<std::string> warnings;
+		bool bindings_pruned = false;
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			bindings_pruned = pruneInvalidBindingsLocked(&warnings);
+		}
+		for (const auto& warning : warnings)
+			LOG_WARN << warning;
+
+		if (bindings_pruned)
+		{
+			std::string persist_error;
+			if (!persistServerState(&persist_error))
+				LOG_WARN << "server state save failed after appliance reload: " << persist_error;
+		}
+		return true;
+	}
+	catch (const std::exception& ex)
+	{
+		if (error)
+			*error = ex.what();
+		return false;
+	}
+}
+
+bool AppState::loadServerState(std::string* error)
+{
+	std::string path;
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		path = serverStatePathLocked();
+	}
+
+	try
+	{
+		core::ServerStateStore store(path);
+		const auto document = store.load();
+
+		std::vector<std::string> warnings;
+		bool normalized = false;
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			m_serverSettings = document.settings.is_object()
+				? document.settings
+				: nlohmann::json::object();
+
+			if (!document.activeSetId.empty())
+			{
+				if (m_gestures.findSet(document.activeSetId))
+				{
+					m_gestures.setActiveSetId(document.activeSetId);
+				}
+				else
+				{
+					normalized = true;
+					warnings.push_back(
+						"server_state: unknown activeSetId '" + document.activeSetId +
+						"', using gesture registry default");
+				}
+			}
+
+			m_bindings.clear();
+			m_bindings.reserve(document.bindings.size());
+			for (const auto& stored : document.bindings)
+			{
+				BindingEntry binding;
+				binding.deviceId = stored.deviceId;
+				binding.controlId = stored.controlId;
+				binding.controlLabel = stored.controlLabel;
+				binding.gestureClassId = stored.gestureClassId;
+				binding.gestureName = m_gestures.gestureName(
+					m_gestures.activeSetId(),
+					stored.gestureClassId);
+				binding.triggerMode = stored.triggerMode;
+				binding.repeatIntervalMs = stored.repeatIntervalMs;
+				m_bindings.push_back(std::move(binding));
+			}
+
+			normalized = pruneInvalidBindingsLocked(&warnings) || normalized;
+		}
+
+		for (const auto& warning : warnings)
+			LOG_WARN << warning;
+
+		if (normalized)
+		{
+			std::string persist_error;
+			if (!persistServerState(&persist_error))
+				LOG_WARN << "server state save failed after normalization: " << persist_error;
+		}
+		return true;
+	}
+	catch (const std::exception& ex)
+	{
+		if (error)
+			*error = ex.what();
+		return false;
+	}
 }
 
 void AppState::startSensorPipeline(const std::string& root)
@@ -53,19 +179,61 @@ void AppState::stopSensorPipeline()
 	m_sensorPipeline.stop();
 }
 
-bool AppState::reloadSensorActiveSet(const std::string& set_id)
+bool AppState::setActiveGestureSet(
+	const std::string& set_id,
+	bool* bindings_pruned,
+	std::string* error)
 {
-	const bool ok = m_sensorPipeline.reloadActiveSet(set_id);
-	if (ok)
+	bool should_reload_pipeline = false;
+	bool pruned = false;
+	std::string previous_active_set;
+	std::vector<BindingEntry> previous_bindings;
+	std::unordered_map<uint32_t, GestureTriggerConfig> previous_overrides;
+	std::unordered_map<uint32_t, GestureTriggerConfig> next_overrides;
+
 	{
-		std::unordered_map<uint32_t, GestureTriggerConfig> overrides;
+		std::lock_guard<std::mutex> lock(m_mutex);
+		if (!m_gestures.findSet(set_id))
+		{
+			if (error)
+				*error = "gesture set not found";
+			return false;
+		}
+
+		if (m_gestures.activeSetId() != set_id)
+		{
+			should_reload_pipeline = m_sensorPipeline.isRunning();
+			previous_active_set = m_gestures.activeSetId();
+			previous_bindings = m_bindings;
+			previous_overrides = bindingTriggerOverridesLocked();
+			m_gestures.setActiveSetId(set_id);
+		}
+
+		pruned = pruneInvalidBindingsLocked();
+		next_overrides = bindingTriggerOverridesLocked();
+	}
+
+	if (should_reload_pipeline && !m_sensorPipeline.reloadActiveSet(set_id))
+	{
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
-			overrides = bindingTriggerOverridesLocked();
+			m_gestures.setActiveSetId(previous_active_set);
+			m_bindings = std::move(previous_bindings);
 		}
-		syncSensorTriggerBindings(overrides);
+		syncSensorTriggerBindings(previous_overrides);
+		if (error)
+			*error = "failed to reload active gesture set";
+		return false;
 	}
-	return ok;
+
+	syncSensorTriggerBindings(next_overrides);
+	if (bindings_pruned)
+		*bindings_pruned = pruned;
+
+	std::string persist_error;
+	if (!persistServerState(&persist_error))
+		appendDevLog("warn", "server_state save failed: " + persist_error);
+	return true;
 }
 
 void AppState::setGestureRoot(const std::string& root)
@@ -265,6 +433,9 @@ bool AppState::setBinding(
 		overrides = bindingTriggerOverridesLocked();
 	}
 	syncSensorTriggerBindings(overrides);
+	std::string persist_error;
+	if (!persistServerState(&persist_error))
+		appendDevLog("warn", "server_state save failed: " + persist_error);
 	return true;
 }
 
@@ -282,6 +453,9 @@ void AppState::clearBindingsForDevice(const std::string& device_id)
 		overrides = bindingTriggerOverridesLocked();
 	}
 	syncSensorTriggerBindings(overrides);
+	std::string persist_error;
+	if (!persistServerState(&persist_error))
+		appendDevLog("warn", "server_state save failed: " + persist_error);
 }
 
 void AppState::clearAllBindings()
@@ -291,29 +465,14 @@ void AppState::clearAllBindings()
 		m_bindings.clear();
 	}
 	syncSensorTriggerBindings({});
+	std::string persist_error;
+	if (!persistServerState(&persist_error))
+		appendDevLog("warn", "server_state save failed: " + persist_error);
 }
 
 bool AppState::sensorPipelineRunning() const
 {
 	return m_sensorPipeline.isRunning();
-}
-
-void AppState::startHomebridgeWatcher(const std::string& config_path)
-{
-	stopHomebridgeWatcher();
-	m_homebridge_watcher = std::make_unique<wave::core::HomebridgeWatcher>(
-		m_applianceManager,
-		config_path);
-	m_homebridge_watcher->start([this](const std::string& msg) { appendDevLog("info", msg); });
-}
-
-void AppState::stopHomebridgeWatcher()
-{
-	if (m_homebridge_watcher)
-	{
-		m_homebridge_watcher->stop();
-		m_homebridge_watcher.reset();
-	}
 }
 
 nlohmann::json AppState::appliancesApiJson(const std::string_view locale_tag) const
@@ -336,6 +495,147 @@ nlohmann::json AppState::appliancesApiJson(const std::string_view locale_tag) co
 	}
 	body["activeGestureSetId"] = gestures().activeSetId();
 	return body;
+}
+
+std::string AppState::applianceConfigPathLocked() const
+{
+	const std::filesystem::path root = m_configRoot.empty()
+		? std::filesystem::path("config")
+		: std::filesystem::path(m_configRoot);
+	return (root / "appliances.json").string();
+}
+
+std::string AppState::serverStatePathLocked() const
+{
+	const std::filesystem::path root = m_configRoot.empty()
+		? std::filesystem::path("config")
+		: std::filesystem::path(m_configRoot);
+	return (root / "server_state.json").string();
+}
+
+bool AppState::persistServerState(std::string* error) const
+{
+	core::ServerStateDocument document;
+	std::string path;
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		path = serverStatePathLocked();
+		document.activeSetId = m_gestures.activeSetId();
+		document.settings = m_serverSettings;
+		for (const auto& binding : m_bindings)
+		{
+			core::StoredBindingEntry stored;
+			stored.deviceId = binding.deviceId;
+			stored.controlId = binding.controlId;
+			stored.controlLabel = binding.controlLabel;
+			stored.gestureClassId = binding.gestureClassId;
+			stored.triggerMode = binding.triggerMode;
+			stored.repeatIntervalMs = binding.repeatIntervalMs;
+			document.bindings.push_back(std::move(stored));
+		}
+	}
+
+	try
+	{
+		core::ServerStateStore(path).save(document);
+		return true;
+	}
+	catch (const std::exception& ex)
+	{
+		if (error)
+			*error = ex.what();
+		return false;
+	}
+}
+
+bool AppState::bindingSupportedLocked(const BindingEntry& binding) const
+{
+	if (binding.deviceId.empty() || binding.controlId.empty() || binding.gestureClassId == 0)
+		return false;
+
+	const auto* active_set = m_gestures.findSet(m_gestures.activeSetId());
+	if (!active_set)
+		return false;
+	if (active_set->triggersByClassId.find(binding.gestureClassId) ==
+		active_set->triggersByClassId.end())
+	{
+		return false;
+	}
+	if (!m_applianceManager.hasAppliance(binding.deviceId))
+		return false;
+	return m_applianceManager.hasInput(binding.deviceId, binding.controlId);
+}
+
+bool AppState::pruneInvalidBindingsLocked(std::vector<std::string>* warnings)
+{
+	std::vector<BindingEntry> filtered;
+	filtered.reserve(m_bindings.size());
+	std::unordered_set<std::string> control_keys;
+	std::unordered_set<uint32_t> gesture_ids;
+	bool changed = false;
+
+	for (auto binding : m_bindings)
+	{
+		if (!bindingSupportedLocked(binding))
+		{
+			changed = true;
+			if (warnings)
+			{
+				warnings->push_back(
+					"server_state: dropped invalid binding '" + binding.deviceId + "/" +
+					binding.controlId + "'");
+			}
+			continue;
+		}
+
+		const std::string control_key = binding.deviceId + "\n" + binding.controlId;
+		if (!control_keys.insert(control_key).second)
+		{
+			changed = true;
+			if (warnings)
+			{
+				warnings->push_back(
+					"server_state: dropped duplicate control binding '" + binding.deviceId +
+					"/" + binding.controlId + "'");
+			}
+			continue;
+		}
+
+		if (!gesture_ids.insert(binding.gestureClassId).second)
+		{
+			changed = true;
+			if (warnings)
+			{
+				warnings->push_back(
+					"server_state: dropped duplicate gesture binding '" +
+					std::to_string(binding.gestureClassId) + "'");
+			}
+			continue;
+		}
+
+		const std::string gesture_name = m_gestures.gestureName(
+			m_gestures.activeSetId(),
+			binding.gestureClassId);
+		if (binding.gestureName != gesture_name)
+		{
+			binding.gestureName = gesture_name;
+			changed = true;
+		}
+		if (binding.controlLabel.empty())
+		{
+			binding.controlLabel = m_applianceManager.inputLabel(
+				binding.deviceId,
+				binding.controlId,
+				"en-US");
+			changed = true;
+		}
+
+		filtered.push_back(std::move(binding));
+	}
+
+	if (changed)
+		m_bindings = std::move(filtered);
+	return changed;
 }
 
 std::unordered_map<uint32_t, GestureTriggerConfig> AppState::bindingTriggerOverridesLocked() const

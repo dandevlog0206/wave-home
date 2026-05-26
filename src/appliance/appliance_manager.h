@@ -12,17 +12,14 @@
 #include "core/coredef.h"
 
 WAVE_NAMESPACE_BEGIN
-CORE_NAMESPACE_BEGIN
-struct ParsedHomebridgeConfig;
-CORE_NAMESPACE_END
 
 APPLIANCE_NAMESPACE_BEGIN
 
 class ApplianceManager
 {
 public:
-	void loadFromHomebridgeConfig(const std::string& path);
-	void loadFromHomebridgeJson(const std::string& json_text);
+	void loadFromDefinitions(std::vector<ApplianceDefinition> definitions);
+	void primeConnections();
 
 	size_t applianceCount() const;
 	nlohmann::json appliancesJson(std::string_view locale_tag) const;
@@ -34,6 +31,7 @@ public:
 		std::string* error = nullptr) const;
 
 	bool hasAppliance(const std::string& appliance_id) const;
+	bool hasInput(const std::string& appliance_id, const std::string& input_id) const;
 	std::string applianceName(const std::string& appliance_id) const;
 	std::string inputLabel(
 		const std::string& appliance_id,
@@ -41,7 +39,7 @@ public:
 		std::string_view locale_tag) const;
 
 private:
-	void applyParsed(core::ParsedHomebridgeConfig parsed);
+	void applyDefinitions(std::vector<ApplianceDefinition> definitions);
 	CommandTransportPtr getOrCreateTransport(const ApplianceTransportConfig& config);
 	std::shared_ptr<Appliance> snapshotAppliance(const std::string& appliance_id) const;
 

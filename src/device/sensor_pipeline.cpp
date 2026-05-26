@@ -106,12 +106,6 @@ void SensorPipeline::start(const std::string& gesture_set_root)
 
 	m_impl->gesture_set_root = gesture_set_root;
 	AppState::instance().setGestureRoot(gesture_set_root);
-	if (!AppState::instance().loadRepository())
-	{
-		LOG_ERROR << "sensor_pipeline: failed to load gesture repository from " << gesture_set_root;
-		m_running.store(false);
-		return;
-	}
 
 	m_impl->catalog.setRoot(gesture_set_root);
 	const auto& active_id = AppState::instance().gestures().activeSetId();

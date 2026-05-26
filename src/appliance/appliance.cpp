@@ -102,6 +102,17 @@ bool Appliance::executeInput(
 	return false;
 }
 
+bool Appliance::hasInput(const std::string& input_id) const
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	for (const auto& input : m_definition.inputs)
+	{
+		if (input.id == input_id)
+			return true;
+	}
+	return false;
+}
+
 std::string Appliance::resolveLabel(
 	const ApplianceInputDefinition& input,
 	const std::string_view locale_tag) const

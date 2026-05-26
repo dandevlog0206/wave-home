@@ -35,6 +35,15 @@ static fs::path resolveGestureRoot(const std::string& cli_path)
 	return fs::weakly_canonical(exe.parent_path() / ".." / "gesture_set");
 }
 
+static fs::path resolveConfigRoot(const std::string& cli_path)
+{
+	if (!cli_path.empty())
+		return fs::weakly_canonical(cli_path);
+
+	const auto exe = fs::read_symlink("/proc/self/exe");
+	return fs::weakly_canonical(exe.parent_path() / ".." / "config");
+}
+
 static ArgParser makeArgParser()
 {
 	ArgParser parser("wave-server", "Wave Home dashboard server");
@@ -47,9 +56,9 @@ static ArgParser makeArgParser()
 	parser.addArgument("--set-root", "-s")
 		.help("Gesture set directory")
 		.defaultValue("");
-	parser.addArgument("--homebridge-config")
-		.help("Homebridge config.json path (inotify reload)")
-		.defaultValue("/var/lib/homebridge/config.json");
+	parser.addArgument("--config-root")
+		.help("Runtime config directory containing appliances.json and server_state.json")
+		.defaultValue("");
 	return parser;
 }
 
@@ -58,7 +67,7 @@ int main(int argc, char* argv[])
 	unsigned port = kDefaultPort;
 	std::string site_root_arg;
 	std::string gesture_root_arg;
-	std::string homebridge_config_arg;
+	std::string config_root_arg;
 
 	try
 	{
@@ -67,7 +76,7 @@ int main(int argc, char* argv[])
 		port = parser.get<unsigned>("port");
 		site_root_arg = parser.get<std::string>("site-root");
 		gesture_root_arg = parser.get<std::string>("set-root");
-		homebridge_config_arg = parser.get<std::string>("homebridge-config");
+		config_root_arg = parser.get<std::string>("config-root");
 	}
 	catch (const std::exception& ex)
 	{
@@ -83,16 +92,26 @@ int main(int argc, char* argv[])
 	}
 
 	const auto gestureRoot = resolveGestureRoot(gesture_root_arg);
+	const auto configRoot = resolveConfigRoot(config_root_arg);
 
 	auto& app_state = wave::AppState::instance();
 	auto& app = drogon::app();
 
+	app_state.setConfigRoot(configRoot.string());
 	app_state.setGestureRoot(gestureRoot.string());
 	app_state.setServerStartedAt(std::chrono::steady_clock::now());
 	if (!app_state.loadRepository())
 	{
 		LOG_WARN << "Gesture repository not loaded from " << gestureRoot;
 	}
+	std::string appliance_config_error;
+	if (!app_state.loadAppliancesConfig(&appliance_config_error))
+		LOG_WARN << "Appliance config not loaded: " << appliance_config_error;
+	else
+		app_state.applianceManager().primeConnections();
+	std::string server_state_error;
+	if (!app_state.loadServerState(&server_state_error))
+		LOG_WARN << "Server state not loaded: " << server_state_error;
 
 	app.setDocumentRoot(siteRoot.string());
 	app.setFileTypes(
@@ -161,7 +180,9 @@ int main(int argc, char* argv[])
 	app.addListener("0.0.0.0", port);
 
 	LOG_INFO << "wave-server: http://0.0.0.0:" << port
-			 << "  site=" << siteRoot << "  gesture_set=" << gestureRoot;
+			 << "  site=" << siteRoot
+			 << "  gesture_set=" << gestureRoot
+			 << "  config=" << configRoot;
 	app_state.appendDevLog(
 		"info",
 		"wave-server started, port=" + std::to_string(port));
@@ -171,16 +192,7 @@ int main(int argc, char* argv[])
 	else
 		LOG_WARN << "Gesture set root not found: " << gestureRoot;
 
-	if (fs::exists(homebridge_config_arg))
-	{
-		app_state.startHomebridgeWatcher(homebridge_config_arg);
-		LOG_INFO << "homebridge: watching " << homebridge_config_arg;
-	}
-	else
-		LOG_WARN << "Homebridge config not found: " << homebridge_config_arg;
-
 	app.run();
-	app_state.stopHomebridgeWatcher();
 	app_state.stopSensorPipeline();
 
 	return 0;

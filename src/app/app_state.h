@@ -1,7 +1,6 @@
 #pragma once
 
 #include "appliance/appliance_manager.h"
-#include "core/homebridge_watcher.h"
 #include "device/gesture_probability_gate.h"
 #include "device/sensor_pipeline.h"
 #include "gesture_repository.h"
@@ -72,7 +71,10 @@ class AppState
 public:
 	static AppState& instance();
 
+	void setConfigRoot(const std::string& root);
 	void setGestureRoot(const std::string& root);
+	bool loadAppliancesConfig(std::string* error = nullptr);
+	bool loadServerState(std::string* error = nullptr);
 	bool loadRepository();
 
 	void setServerStartedAt(std::chrono::steady_clock::time_point t);
@@ -88,7 +90,10 @@ public:
 
 	void startSensorPipeline(const std::string& root);
 	void stopSensorPipeline();
-	bool reloadSensorActiveSet(const std::string& set_id);
+	bool setActiveGestureSet(
+		const std::string& set_id,
+		bool* bindings_pruned = nullptr,
+		std::string* error = nullptr);
 
 	RadarState radarSnapshot() const;
 	InferenceSnapshot inferenceSnapshot() const;
@@ -115,8 +120,6 @@ public:
 
 	wave::appliance::ApplianceManager& applianceManager() { return m_applianceManager; }
 	const wave::appliance::ApplianceManager& applianceManager() const { return m_applianceManager; }
-	void startHomebridgeWatcher(const std::string& config_path);
-	void stopHomebridgeWatcher();
 	nlohmann::json appliancesApiJson(std::string_view locale_tag) const;
 
 	void registerDevSocket(const drogon::WebSocketConnectionPtr& conn);
@@ -130,10 +133,16 @@ private:
 
 	void pushHistory(const HistoryEvent& ev);
 	std::string nowIsoUtc() const;
+	std::string applianceConfigPathLocked() const;
+	std::string serverStatePathLocked() const;
+	bool persistServerState(std::string* error = nullptr) const;
+	bool pruneInvalidBindingsLocked(std::vector<std::string>* warnings = nullptr);
+	bool bindingSupportedLocked(const BindingEntry& binding) const;
 	std::unordered_map<uint32_t, GestureTriggerConfig> bindingTriggerOverridesLocked() const;
 	void syncSensorTriggerBindings(const std::unordered_map<uint32_t, GestureTriggerConfig>& overrides);
 
 	mutable std::mutex m_mutex;
+	std::string m_configRoot;
 	std::string m_gestureRoot;
 	GestureRepository m_gestures;
 
@@ -149,6 +158,7 @@ private:
 	std::string m_todayKey;
 
 	std::vector<BindingEntry> m_bindings;
+	nlohmann::json m_serverSettings = nlohmann::json::object();
 
 	struct DevLogLine
 	{
@@ -161,7 +171,6 @@ private:
 	std::vector<drogon::WebSocketConnectionPtr> m_devSockets;
 
 	wave::appliance::ApplianceManager m_applianceManager;
-	std::unique_ptr<wave::core::HomebridgeWatcher> m_homebridge_watcher;
 };
 
 WAVE_NAMESPACE_END

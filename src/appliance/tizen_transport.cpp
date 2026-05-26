@@ -789,6 +789,30 @@ bool TizenCommandTransport::publish(const std::string& channel, const std::strin
 	return ok;
 }
 
+void TizenCommandTransport::primeConnection()
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (m_session && m_session->transport.ssl)
+	{
+		m_state = TransportConnectionState::Connected;
+		return;
+	}
+
+	m_lastError.clear();
+	m_state = TransportConnectionState::Connecting;
+	std::string error;
+	if (ensureSessionLocked(&error))
+	{
+		m_state = TransportConnectionState::Connected;
+		return;
+	}
+
+	if (!error.empty())
+		setErrorLocked(error);
+	else
+		m_state = TransportConnectionState::Disconnected;
+}
+
 TransportConnectionState TizenCommandTransport::connectionState() const
 {
 	std::lock_guard<std::mutex> lock(m_mutex);

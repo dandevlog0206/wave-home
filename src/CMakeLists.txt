@@ -3,9 +3,9 @@ set(WAVE_RUNTIME_OUTPUT_NAME "wave-server" CACHE STRING "Runtime filename for th
 
 add_executable(wave-server
     main.cpp
+    core/appliance_config_store.cpp
     core/locale.cpp
-    core/homebridge_watcher.cpp
-    core/homebridge_parser.cpp
+    core/server_state_store.cpp
     util/arg_parser.cpp
     device/network.cpp
     device/inference_engine.cpp

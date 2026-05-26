@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "appliances": [
+    {
+      "id": "samsung-monitor",
+      "name": "Samsung Monitor",
+      "kind": "tizen",
+      "room": "",
+      "includeDefaultInputs": true,
+      "transport": {
+        "kind": "tizen",
+        "endpoint": "wss://192.168.0.24:8002",
+        "options": {
+          "ip": "192.168.0.24",
+          "mac": "04:E4:B6:A9:BD:0A",
+          "name": "Samsung Monitor",
+          "token": "15874474",
+          "tokenAuth": true,
+          "powerState": true,
+          "securePort": 8002,
+          "apiPort": 8001,
+          "timeoutMs": 1500
+        }
+      },
+      "metadata": {
+        "mac": "04:E4:B6:A9:BD:0A",
+        "ip": "192.168.0.24"
+      },
+      "inputs": [
+        {
+          "id": "hdmi1-settop-box",
+          "label": "셋톱박스 (HDMI1)",
+          "kind": "source",
+          "triggerMode": "pulse",
+          "triggerCommands": [
+            {
+              "channel": "remoteKey",
+              "payload": "KEY_HDMI1"
+            }
+          ]
+        },
+        {
+          "id": "hdmi2-pc-console",
+          "label": "PC/콘솔 (HDMI2)",
+          "kind": "source",
+          "triggerMode": "pulse",
+          "triggerCommands": [
+            {
+              "channel": "remoteKey",
+              "payload": "KEY_HDMI2"
+            }
+          ]
+        },
+        {
+          "id": "youtube",
+          "label": "유튜브",
+          "kind": "app",
+          "triggerMode": "pulse",
+          "triggerCommands": [
+            {
+              "channel": "app",
+              "payload": "111299001912"
+            }
+          ]
+        },
+        {
+          "id": "netflix",
+          "label": "넷플릭스",
+          "kind": "app",
+          "triggerMode": "pulse",
+          "triggerCommands": [
+            {
+              "channel": "app",
+              "payload": "11101200001"
+            }
+          ]
+        },
+        {
+          "id": "disney-plus",
+          "label": "디즈니플러스",
+          "kind": "app",
+          "triggerMode": "pulse",
+          "triggerCommands": [
+            {
+              "channel": "app",
+              "payload": "3201907018807"
+            }
+          ]
+        },
+        {
+          "id": "tving",
+          "label": "티빙",
+          "kind": "app",
+          "triggerMode": "pulse",
+          "triggerCommands": [
+            {
+              "channel": "app",
+              "payload": "3201907018706"
+            }
+          ]
+        },
+        {
+          "id": "mute",
+          "label": "음소거",
+          "kind": "toggle",
+          "triggerMode": "toggle",
+          "triggerCommands": [
+            {
+              "channel": "remoteKey",
+              "payload": "KEY_MUTE"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

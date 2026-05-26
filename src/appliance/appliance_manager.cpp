@@ -6,7 +6,6 @@
 #include "appliance/tizen_appliance.h"
 #include "appliance/tizen_transport.h"
 #include "appliance/tuya_appliance.h"
-#include "core/homebridge_parser.h"
 
 WAVE_NAMESPACE_BEGIN
 APPLIANCE_NAMESPACE_BEGIN
@@ -46,14 +45,27 @@ namespace
 	}
 } // namespace
 
-void ApplianceManager::loadFromHomebridgeConfig(const std::string& path)
+void ApplianceManager::loadFromDefinitions(std::vector<ApplianceDefinition> definitions)
 {
-	applyParsed(core::parseHomebridgeConfigFile(path));
+	applyDefinitions(std::move(definitions));
 }
 
-void ApplianceManager::loadFromHomebridgeJson(const std::string& json_text)
+void ApplianceManager::primeConnections()
 {
-	applyParsed(core::parseHomebridgeConfig(json_text));
+	std::vector<CommandTransportPtr> transports;
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		transports.reserve(m_transports.size());
+		for (const auto& [cache_key, transport] : m_transports)
+		{
+			(void)cache_key;
+			if (transport)
+				transports.push_back(transport);
+		}
+	}
+
+	for (const auto& transport : transports)
+		transport->primeConnection();
 }
 
 CommandTransportPtr ApplianceManager::getOrCreateTransport(const ApplianceTransportConfig& config)
@@ -69,12 +81,12 @@ CommandTransportPtr ApplianceManager::getOrCreateTransport(const ApplianceTransp
 	return transport;
 }
 
-void ApplianceManager::applyParsed(core::ParsedHomebridgeConfig parsed)
+void ApplianceManager::applyDefinitions(std::vector<ApplianceDefinition> definitions)
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
 
 	std::unordered_map<std::string, std::shared_ptr<Appliance>> next_appliances;
-	for (const auto& definition : parsed.appliances)
+	for (const auto& definition : definitions)
 	{
 		auto transport = getOrCreateTransport(definition.transport);
 		auto appliance = makeApplianceInstance(definition, transport);
@@ -130,6 +142,14 @@ bool ApplianceManager::hasAppliance(const std::string& appliance_id) const
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
 	return m_appliances.find(appliance_id) != m_appliances.end();
+}
+
+bool ApplianceManager::hasInput(
+	const std::string& appliance_id,
+	const std::string& input_id) const
+{
+	auto appliance = snapshotAppliance(appliance_id);
+	return appliance ? appliance->hasInput(input_id) : false;
 }
 
 std::string ApplianceManager::applianceName(const std::string& appliance_id) const

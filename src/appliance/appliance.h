@@ -101,6 +101,8 @@ public:
 		std::optional<InputTriggerMode> trigger_mode_override = std::nullopt,
 		std::string* error = nullptr);
 
+	bool hasInput(const std::string& input_id) const;
+
 	std::string inputLabel(
 		const std::string& input_id,
 		std::string_view locale_tag) const;
