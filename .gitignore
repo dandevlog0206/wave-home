@@ -1,6 +1,8 @@
 build/
+build-debug/
 build_pi5/
 bin/
+bin-debug/
 cmake-build-*/
 .cache/
 *.user

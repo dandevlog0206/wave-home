@@ -66,6 +66,7 @@ struct SensorPipeline::Impl
 	GestureSetCatalog catalog;
 	net::InferenceEngine inference;
 	wave::GestureProbabilityGate probabilityGate;
+	std::mutex inference_mutex;
 
 	std::mutex queue_mutex;
 	std::condition_variable queue_cv;
@@ -118,6 +119,7 @@ void SensorPipeline::start(const std::string& gesture_set_root)
 
 	try
 	{
+		std::lock_guard<std::mutex> lock(m_impl->inference_mutex);
 		m_impl->inference.load(m_impl->catalog.activeSet().modelJsonPath.c_str());
 		m_impl->probabilityGate.configure(m_impl->catalog.activeSet());
 	}
@@ -180,9 +182,16 @@ bool SensorPipeline::reloadActiveSet(const std::string& set_id)
 
 	try
 	{
-		m_impl->inference.load(m_impl->catalog.activeSet().modelJsonPath.c_str());
-		m_impl->probabilityGate.configure(m_impl->catalog.activeSet());
-		m_impl->probabilityGate.reset();
+		{
+			std::lock_guard<std::mutex> queue_lock(m_impl->queue_mutex);
+			m_impl->frame_queue.clear();
+		}
+		{
+			std::lock_guard<std::mutex> inference_lock(m_impl->inference_mutex);
+			m_impl->inference.load(m_impl->catalog.activeSet().modelJsonPath.c_str());
+			m_impl->probabilityGate.configure(m_impl->catalog.activeSet());
+			m_impl->probabilityGate.reset();
+		}
 		LOG_INFO << "sensor_pipeline: reloaded model for " << set_id;
 		devLog("info", "sensor_pipeline: reloaded model for " + set_id);
 		return true;
@@ -191,6 +200,7 @@ bool SensorPipeline::reloadActiveSet(const std::string& set_id)
 	{
 		LOG_WARN << "sensor_pipeline: reload failed for " << set_id << ": " << ex.what();
 		devLog("error", std::string("sensor_pipeline: model reload failed · ") + set_id + ": " + ex.what());
+		std::lock_guard<std::mutex> inference_lock(m_impl->inference_mutex);
 		m_impl->probabilityGate.configure(m_impl->catalog.activeSet());
 		m_impl->probabilityGate.reset();
 		return false;
@@ -203,6 +213,7 @@ void SensorPipeline::reloadTriggerBindings(
 	if (!m_running.load())
 		return;
 
+	std::lock_guard<std::mutex> lock(m_impl->inference_mutex);
 	m_impl->probabilityGate.configure(m_impl->catalog.activeSet(), overrides);
 	m_impl->probabilityGate.reset();
 	devLog("info", "sensor_pipeline: trigger bindings updated");
@@ -233,21 +244,26 @@ void SensorPipeline::Impl::publishRadarConnected(const retina::DeviceInfo& info)
 
 void SensorPipeline::Impl::publishInferenceResult()
 {
-	if (!inference.hasSequence(net::SEQUENCE_IDX_BACK))
-		return;
-
-	const auto& probs = inference.getSequenceProbabilities(net::SEQUENCE_IDX_BACK);
-	const auto& embed_map = inference.getSequenceEmbeddingMap(net::SEQUENCE_IDX_BACK);
-	const auto& model = inference.getModelInfo();
-
 	InferenceSnapshot snap {};
-	snap.probabilities = probs;
-	snap.embeddingMap = embed_map;
-	snap.embedDim = model.frameEncoderInfo.outputSize;
-	snap.sequenceLength = model.sequenceLength;
-	snap.sequenceReady = true;
+	std::vector<wave::GestureGateDebug> gates;
+	{
+		std::lock_guard<std::mutex> lock(inference_mutex);
+		if (!inference.hasSequence(net::SEQUENCE_IDX_BACK))
+			return;
 
-	auto gates = probabilityGate.debugSnapshot();
+		const auto probs = inference.getSequenceProbabilities(net::SEQUENCE_IDX_BACK);
+		const auto embed_map = inference.getSequenceEmbeddingMap(net::SEQUENCE_IDX_BACK);
+		const auto model = inference.getModelInfo();
+
+		snap.probabilities = probs;
+		snap.embeddingMap = embed_map;
+		snap.embedDim = model.frameEncoderInfo.outputSize;
+		snap.sequenceLength = model.sequenceLength;
+		snap.sequenceReady = true;
+
+		gates = probabilityGate.debugSnapshot();
+	}
+
 	for (auto& gate : gates)
 	{
 		const auto name = AppState::instance().gestures().gestureName(
@@ -386,6 +402,7 @@ void SensorPipeline::Impl::inferenceLoop()
 
 		try
 		{
+			points.clear();
 			points.reserve(item.frame.points.size());
 			for (const auto& point : item.frame.points)
 			{
@@ -398,13 +415,17 @@ void SensorPipeline::Impl::inferenceLoop()
 				});
 			}
 
-			inference.enqueueFrame(std::move(points), net::FRAME_IDX_BACK);
+			std::vector<wave::GestureTriggerEvent> events;
+			{
+				std::lock_guard<std::mutex> lock(inference_mutex);
+				inference.enqueueFrame(std::move(points), net::FRAME_IDX_BACK);
 
-			if (!inference.hasSequence(net::SEQUENCE_IDX_BACK))
-				continue;
+				if (!inference.hasSequence(net::SEQUENCE_IDX_BACK))
+					continue;
 
-			const auto& probs = inference.getSequenceProbabilities(net::SEQUENCE_IDX_BACK);
-			const auto events = probabilityGate.update(probs);
+				const auto probs = inference.getSequenceProbabilities(net::SEQUENCE_IDX_BACK);
+				events = probabilityGate.update(probs);
+			}
 			publishInferenceResult();
 
 			for (const auto& ev : events)

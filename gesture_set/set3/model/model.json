@@ -1,7 +1,7 @@
 {
     "version": "1.0",
-    "model_name": "GestureNetV3.0",
-    "model_version": "3.0",
+    "model_name": "GestureNetV3.1",
+    "model_version": "3.1",
     "sequence_length": 48,
     "normalization": {
         "coordinate_mode": "cartesian",
@@ -27,11 +27,11 @@
             "use_cache": true
         },
         {
-            "name": "LSTMV1",
-            "type": "lstm",
+            "name": "CNNV3",
+            "type": "cnn",
             "role": "temporal_aggregator",
-            "param": "lstm.param",
-            "bin": "lstm.bin",
+            "param": "cnn.param",
+            "bin": "cnn.bin",
             "input_name": "in0",
             "output_name": "out0",
             "output_size": 14
