@@ -137,7 +137,7 @@ void SensorPipeline::start(const std::string& gesture_set_root)
 	m_impl->inference_thread = std::thread([this] { m_impl->inferenceLoop(); });
 
 	LOG_INFO << "sensor_pipeline: started (active set " << m_impl->catalog.activeSetId() << ')';
-	devLog("info", "센서 파이프라인 시작 · " + m_impl->catalog.activeSetId());
+	devLog("info", "sensor_pipeline: started " + m_impl->catalog.activeSetId());
 }
 
 void SensorPipeline::stop()
@@ -169,7 +169,7 @@ void SensorPipeline::stop()
 	m_impl->io_context.reset();
 
 	LOG_INFO << "sensor_pipeline: stopped";
-	devLog("info", "센서 파이프라인 중지");
+	devLog("info", "sensor_pipeline: stopped");
 }
 
 bool SensorPipeline::reloadActiveSet(const std::string& set_id)
@@ -180,7 +180,7 @@ bool SensorPipeline::reloadActiveSet(const std::string& set_id)
 	m_impl->catalog.setRoot(m_impl->gesture_set_root);
 	if (!m_impl->catalog.loadSet(set_id))
 	{
-		devLog("error", "제스처 세트 로드 실패 · " + set_id);
+		devLog("error", "sensor_pipeline: failed to load gesture set · " + set_id);
 		return false;
 	}
 
@@ -190,13 +190,13 @@ bool SensorPipeline::reloadActiveSet(const std::string& set_id)
 		m_impl->probabilityGate.configure(m_impl->catalog.activeSet());
 		m_impl->probabilityGate.reset();
 		LOG_INFO << "sensor_pipeline: reloaded model for " << set_id;
-		devLog("info", "모델 리로드 완료 · " + set_id);
+		devLog("info", "sensor_pipeline: reloaded model for " + set_id);
 		return true;
 	}
 	catch (const std::exception& ex)
 	{
 		LOG_WARN << "sensor_pipeline: reload failed for " << set_id << ": " << ex.what();
-		devLog("error", std::string("모델 리로드 실패 · ") + set_id + ": " + ex.what());
+		devLog("error", std::string("sensor_pipeline: model reload failed · ") + set_id + ": " + ex.what());
 		m_impl->probabilityGate.configure(m_impl->catalog.activeSet());
 		m_impl->probabilityGate.reset();
 		return false;
@@ -211,7 +211,7 @@ void SensorPipeline::reloadTriggerBindings(
 
 	m_impl->probabilityGate.configure(m_impl->catalog.activeSet(), overrides);
 	m_impl->probabilityGate.reset();
-	devLog("info", "트리거 바인딩 설정 갱신");
+	devLog("info", "sensor_pipeline: trigger bindings updated");
 }
 
 void SensorPipeline::Impl::publishRadarDisconnected()
@@ -375,13 +375,15 @@ void SensorPipeline::Impl::connectionLoop()
 			break;
 
 		LOG_WARN << "sensor_pipeline: disconnected, retry in 15s";
-		devLog("warn", "레이더 연결 끊김 · 15초 후 재시도");
+		devLog("warn", "sensor_pipeline: disconnected, retry in 15s");
 		sleepReconnectDelay(stop_requested);
 	}
 }
 
 void SensorPipeline::Impl::inferenceLoop()
 {
+	std::vector<net::Point> points;
+
 	while (!stop_requested.load())
 	{
 		QueuedRadarFrame item;
@@ -390,7 +392,6 @@ void SensorPipeline::Impl::inferenceLoop()
 
 		try
 		{
-			std::vector<net::Point> points;
 			points.reserve(item.frame.points.size());
 			for (const auto& point : item.frame.points)
 			{

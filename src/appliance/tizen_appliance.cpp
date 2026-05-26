@@ -3,10 +3,9 @@
 WAVE_NAMESPACE_BEGIN
 APPLIANCE_NAMESPACE_BEGIN
 
-TizenAppliance::TizenAppliance(
-	ApplianceDefinition definition,
-	CommandTransportPtr transport) :
-	Appliance(std::move(definition), std::move(transport))
+TizenAppliance::TizenAppliance(ApplianceDefinition definition, CommandTransportPtr transport) :
+	Appliance(std::move(definition),
+	std::move(transport))
 {
 }
 

@@ -2,12 +2,9 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
-
 #include <drogon/drogon.h>
 
-#include "app/api_controller.h"
 #include "app/app_state.h"
-#include "app/ws_controller.h"
 #include "util/arg_parser.h"
 
 namespace fs = std::filesystem;
@@ -24,24 +21,18 @@ static fs::path resolveSiteRoot(const std::string& cli_path)
 			return fs::weakly_canonical(p);
 		return fs::weakly_canonical(p);
 	}
-#ifdef WAVE_SITE_ROOT
-	return fs::path(WAVE_SITE_ROOT);
-#else
+
 	const auto exe = fs::read_symlink("/proc/self/exe");
 	return fs::weakly_canonical(exe.parent_path() / ".." / "site");
-#endif
 }
 
 static fs::path resolveGestureRoot(const std::string& cli_path)
 {
 	if (!cli_path.empty())
 		return fs::weakly_canonical(cli_path);
-#ifdef WAVE_GESTURE_SET_ROOT
-	return fs::path(WAVE_GESTURE_SET_ROOT);
-#else
+
 	const auto exe = fs::read_symlink("/proc/self/exe");
 	return fs::weakly_canonical(exe.parent_path() / ".." / "gesture_set");
-#endif
 }
 
 static ArgParser makeArgParser()
@@ -109,9 +100,8 @@ int main(int argc, char* argv[])
 		 "json", "woff", "woff2", "map", "txt", "webm", "mp4"});
 
 	app.registerPreRoutingAdvice(
-		[](const drogon::HttpRequestPtr& req,
-		   drogon::AdviceCallback&& acb,
-		   drogon::AdviceChainCallback&& accb) {
+		[](const drogon::HttpRequestPtr& req, drogon::AdviceCallback&& acb, drogon::AdviceChainCallback&& accb)
+		{
 			static constexpr std::string_view kPrefix = "/api/v1/gesture-media/";
 			const auto& path = req->path();
 			if (path.rfind(kPrefix, 0) != 0)
@@ -135,9 +125,9 @@ int main(int argc, char* argv[])
 
 			const std::string set_id = rest.substr(0, slash);
 			const std::string rel = rest.substr(slash + 1);
-			const std::filesystem::path file =
-				std::filesystem::path(wave::AppState::instance().gestureRoot()) / set_id / rel;
-			if (!std::filesystem::exists(file))
+			const fs::path file = fs::path(wave::AppState::instance().gestureRoot()) / set_id / rel;
+			
+			if (!fs::exists(file))
 			{
 				acb(drogon::HttpResponse::newNotFoundResponse());
 				return;
@@ -145,25 +135,25 @@ int main(int argc, char* argv[])
 			acb(drogon::HttpResponse::newFileResponse(file.string()));
 		});
 
-	const auto indexPath = siteRoot / "index.html";
-	if (fs::exists(indexPath))
+	const auto index_path = siteRoot / "index.html";
+	if (fs::exists(index_path))
 	{
 		app.registerPreRoutingAdvice(
-			[indexPath](const drogon::HttpRequestPtr& req,
-						drogon::AdviceCallback&& acb,
-						drogon::AdviceChainCallback&& accb) {
+			[index_path](const drogon::HttpRequestPtr& req, drogon::AdviceCallback&& acb, drogon::AdviceChainCallback&& accb)
+			{
 				if (req->method() != drogon::Get && req->method() != drogon::Head)
 				{
 					accb();
 					return;
 				}
+
 				const auto& path = req->path();
 				if (path.find('.') != std::string::npos || path.rfind("/api/", 0) == 0)
 				{
 					accb();
 					return;
 				}
-				acb(drogon::HttpResponse::newFileResponse(indexPath.string()));
+				acb(drogon::HttpResponse::newFileResponse(index_path.string()));
 			});
 	}
 
@@ -174,7 +164,7 @@ int main(int argc, char* argv[])
 			 << "  site=" << siteRoot << "  gesture_set=" << gestureRoot;
 	app_state.appendDevLog(
 		"info",
-		"wave-server 시작 · 포트 " + std::to_string(port));
+		"wave-server started, port=" + std::to_string(port));
 
 	if (fs::exists(gestureRoot))
 		app_state.startSensorPipeline(gestureRoot.string());

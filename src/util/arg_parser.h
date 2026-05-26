@@ -22,6 +22,7 @@ public:
     std::string getShortName() const { return m_shortName; }
     std::string getDescription() const { return m_description; }
     std::string getDefaultValue() const { return m_defaultValue; }
+    bool hasDefaultValue() const { return m_hasDefaultValue; }
     bool isRequired() const { return m_isRequired; }
     bool isFlag() const { return m_isFlag; }
 
@@ -32,6 +33,7 @@ private:
     std::string m_shortName;
     std::string m_description;
     std::string m_defaultValue;
+    bool m_hasDefaultValue = false;
     bool m_isRequired = false;
     bool m_isFlag = false;
 };

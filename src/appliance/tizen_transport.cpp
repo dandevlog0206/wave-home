@@ -709,9 +709,7 @@ struct TizenCommandTransport::Session
 	TizenSession transport;
 };
 
-TizenCommandTransport::TizenCommandTransport(
-	std::string endpoint,
-	nlohmann::json options) :
+TizenCommandTransport::TizenCommandTransport(std::string endpoint, nlohmann::json options) :
 	m_endpoint(std::move(endpoint)),
 	m_options(std::move(options))
 {
@@ -764,9 +762,7 @@ void TizenCommandTransport::closeSessionLocked()
 	m_session.reset();
 }
 
-bool TizenCommandTransport::publish(
-	const std::string& channel,
-	const std::string& payload)
+bool TizenCommandTransport::publish(const std::string& channel, const std::string& payload)
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
 	m_lastError.clear();

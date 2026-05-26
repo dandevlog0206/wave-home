@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "defaultActiveSetId": "set0",
+  "defaultActiveSetId": "set2",
   "sets": [
     { "id": "set0", "path": "set0", "displayOrder": 0, "enabled": true },
     { "id": "set1", "path": "set1", "displayOrder": 1, "enabled": true },

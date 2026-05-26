@@ -16,6 +16,7 @@ Argument& Argument::help(const std::string& text)
 Argument& Argument::defaultValue(const std::string& value)
 {
     m_defaultValue = value;
+    m_hasDefaultValue = true;
     return *this;
 }
 
@@ -106,7 +107,7 @@ std::string ArgParser::getRawValue(const std::string& name) const
 
     for (const auto& arg : m_arguments) {
         if (arg->getCleanName() == name) {
-            if (!arg->getDefaultValue().empty()) {
+            if (arg->hasDefaultValue()) {
                 return arg->getDefaultValue();
             }
             break;
@@ -138,7 +139,7 @@ void ArgParser::printHelp() const
         std::cout << "  " << std::left << std::setw(20) << nameStr << " " << arg->getDescription();
         if (arg->isRequired()) {
             std::cout << " (required)";
-        } else if (!arg->getDefaultValue().empty()) {
+        } else if (arg->hasDefaultValue() && !arg->getDefaultValue().empty()) {
             std::cout << " (default: " << arg->getDefaultValue() << ")";
         }
         std::cout << "\n";

@@ -1,3 +1,6 @@
+set(WAVE_RUNTIME_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin" CACHE PATH "Directory for built wave-server binaries")
+set(WAVE_RUNTIME_OUTPUT_NAME "wave-server" CACHE STRING "Runtime filename for the wave-server executable")
+
 add_executable(wave-server
     main.cpp
     core/locale.cpp
@@ -23,7 +26,8 @@ add_executable(wave-server
 )
 
 set_target_properties(wave-server PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin"
+    RUNTIME_OUTPUT_DIRECTORY "${WAVE_RUNTIME_OUTPUT_DIR}"
+    OUTPUT_NAME "${WAVE_RUNTIME_OUTPUT_NAME}"
 )
 
 target_compile_definitions(wave-server PRIVATE

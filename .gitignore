@@ -1,4 +1,5 @@
 build/
+build_pi5/
 bin/
 cmake-build-*/
 .cache/
