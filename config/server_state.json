@@ -1,6 +1,47 @@
 {
-  "activeSetId": "set3",
-  "bindings": [],
+  "activeSetId": "set5",
+  "bindings": [
+    {
+      "controlId": "volume_up",
+      "controlLabel": "Volume up",
+      "deviceId": "samsung-monitor",
+      "gestureClassId": 11,
+      "repeatIntervalMs": 150,
+      "triggerMode": "repeat"
+    },
+    {
+      "controlId": "volume_down",
+      "controlLabel": "Volume down",
+      "deviceId": "samsung-monitor",
+      "gestureClassId": 12,
+      "repeatIntervalMs": 150,
+      "triggerMode": "repeat"
+    },
+    {
+      "controlId": "channel_up",
+      "controlLabel": "Channel up",
+      "deviceId": "samsung-monitor",
+      "gestureClassId": 6,
+      "repeatIntervalMs": 600,
+      "triggerMode": "pulse"
+    },
+    {
+      "controlId": "channel_down",
+      "controlLabel": "Channel down",
+      "deviceId": "samsung-monitor",
+      "gestureClassId": 7,
+      "repeatIntervalMs": 600,
+      "triggerMode": "pulse"
+    },
+    {
+      "controlId": "mute",
+      "controlLabel": "음소거",
+      "deviceId": "samsung-monitor",
+      "gestureClassId": 2,
+      "repeatIntervalMs": 600,
+      "triggerMode": "toggle"
+    }
+  ],
   "settings": {},
   "version": 1
 }

@@ -34,21 +34,19 @@ uint32_t GestureProbabilityGate::elapsedMs(
 
 void GestureProbabilityGate::configure(
 	const GestureSetManifest& manifest,
-	const std::unordered_map<uint32_t, GestureTriggerConfig>& overrides)
+	const std::unordered_map<uint32_t, GestureTriggerConfig>& binding_overrides)
 {
 	m_gates.clear();
-	for (uint32_t class_id : manifest.gestureClassIds)
+	for (const auto& [class_id, binding_config] : binding_overrides)
 	{
 		GateState gate {};
-		const auto it = manifest.triggersByClassId.find(class_id);
-		if (it != manifest.triggersByClassId.end())
-			gate.config = it->second;
-		if (const auto override_it = overrides.find(class_id);
-			override_it != overrides.end())
+		if (const auto it = manifest.triggersByClassId.find(class_id);
+			it != manifest.triggersByClassId.end())
 		{
-			gate.config.mode = override_it->second.mode;
-			gate.config.repeatIntervalMs = override_it->second.repeatIntervalMs;
+			gate.config = it->second;
 		}
+		gate.config.mode = binding_config.mode;
+		gate.config.repeatIntervalMs = binding_config.repeatIntervalMs;
 		m_gates[class_id] = gate;
 	}
 }

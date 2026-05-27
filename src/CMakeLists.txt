@@ -23,6 +23,8 @@ add_executable(wave-server
     appliance/tizen_appliance.cpp
     appliance/tizen_transport.cpp
     appliance/tuya_appliance.cpp
+    appliance/tuya_protocol.cpp
+    appliance/tuya_transport.cpp
 )
 
 set_target_properties(wave-server PROPERTIES
@@ -42,8 +44,11 @@ target_include_directories(wave-server PRIVATE
 
 target_link_libraries(wave-server PRIVATE Drogon::Drogon)
 target_link_libraries(wave-server PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(wave-server PRIVATE wave_asio)
+
+find_package(OpenSSL REQUIRED)
+target_link_libraries(wave-server PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 
 if(WAVE_BUILD_NCNN AND TARGET ncnn)
     target_link_libraries(wave-server PRIVATE ncnn)
-    target_link_libraries(wave-server PRIVATE wave_asio)
 endif()

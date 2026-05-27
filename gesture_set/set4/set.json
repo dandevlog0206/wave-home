@@ -1,0 +1,102 @@
+{
+  "id": "set_desk_smart_hub",
+  "name": "데스크 스마트 홈 허브 제스처 세트",
+  "description": "레이더 센서 기반 PointNet+CNN 파이프라인으로 구현된 책상 환경 최적화 제스처 제어 세트입니다.",
+  "modelPath": "model/model.json",
+  "gestureClassIds": [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "classLabels": {
+    "0": "부재중",
+    "1": "도리도리",
+    "2": "잼잼",
+    "3": "앉아서 컴퓨터를 보는 중",
+    "4": "손으로 시계방향 돌림",
+    "5": "손으로 반시계방향 돌림",
+    "6": "오른쪽 스와이프",
+    "7": "왼쪽 스와이프",
+    "8": "부채질",
+    "9": "부채질",
+    "10": "오들오들",
+    "11": "손 앞으로 굴리기",
+    "12": "손 뒤로 굴리기"
+  },
+  "gestures": [
+    {
+      "gestureClassId": 0, 
+      "name": "부재중", 
+      "media": { "preview": "media/gestures/00/preview.png" }, 
+      "trigger": { "highThreshold": 0.80, "lowThreshold": 0.20, "cooldownMs": 3000, "minHighHoldMs": 500, "minLowHoldMs": 500 }
+    },
+    { 
+      "gestureClassId": 1, 
+      "name": "도리도리", 
+      "media": { "preview": "media/gestures/01/preview.png" }, 
+      "trigger": { "highThreshold": 0.65, "lowThreshold": 0.35, "cooldownMs": 1500, "minHighHoldMs": 200, "minLowHoldMs": 120 } 
+    },
+    { 
+      "gestureClassId": 2, 
+      "name": "잼잼", 
+      "media": { "preview": "media/gestures/02/preview.png" }, 
+      "trigger": { "highThreshold": 0.60, "lowThreshold": 0.40, "cooldownMs": 1200, "minHighHoldMs": 150, "minLowHoldMs": 120 } 
+    },
+    { 
+      "gestureClassId": 3, 
+      "name": "앉아서 컴퓨터를 보는 중", 
+      "media": { "preview": "media/gestures/03/preview.png" }, 
+      "trigger": { "highThreshold": 0.80, "lowThreshold": 0.20, "cooldownMs": 3000, "minHighHoldMs": 500, "minLowHoldMs": 500 } 
+    },
+    { 
+      "gestureClassId": 4, 
+      "name": "손으로 시계방향 돌림", 
+      "media": { "preview": "media/gestures/04/preview.png" }, 
+      "trigger": { "highThreshold": 0.50, "lowThreshold": 0.30, "cooldownMs": 250, "minHighHoldMs": 100, "minLowHoldMs": 100 } 
+    },
+    { 
+      "gestureClassId": 5, 
+      "name": "손으로 반시계방향 돌림", 
+      "media": { "preview": "media/gestures/05/preview.png" }, 
+      "trigger": { "highThreshold": 0.50, "lowThreshold": 0.30, "cooldownMs": 250, "minHighHoldMs": 100, "minLowHoldMs": 100 } 
+    },
+    { 
+      "gestureClassId": 6, 
+      "name": "오른쪽 스와이프", 
+      "media": { "preview": "media/gestures/06/preview.png" }, 
+      "trigger": { "highThreshold": 0.70, "lowThreshold": 0.30, "cooldownMs": 1000, "minHighHoldMs": 50, "minLowHoldMs": 50 } 
+    },
+    { 
+      "gestureClassId": 7, 
+      "name": "왼쪽 스와이프", 
+      "media": { "preview": "media/gestures/07/preview.png" }, 
+      "trigger": { "highThreshold": 0.70, "lowThreshold": 0.30, "cooldownMs": 1000, "minHighHoldMs": 50, "minLowHoldMs": 50 } 
+    },
+    { 
+      "gestureClassId": 8, 
+      "name": "부채질(한손)", 
+      "media": { "preview": "media/gestures/08/preview.png" }, 
+      "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 1500, "minHighHoldMs": 200, "minLowHoldMs": 120 } 
+    },
+    { 
+      "gestureClassId": 9, 
+      "name": "부채질(양손)", 
+      "media": { "preview": "media/gestures/09/preview.png" }, 
+      "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 1500, "minHighHoldMs": 200, "minLowHoldMs": 120 } 
+    },
+    { 
+      "gestureClassId": 10, 
+      "name": "오들오들", 
+      "media": { "preview": "media/gestures/10/preview.png" }, 
+      "trigger": { "highThreshold": 0.60, "lowThreshold": 0.35, "cooldownMs": 2000, "minHighHoldMs": 300, "minLowHoldMs": 120 } 
+    },
+    { 
+      "gestureClassId": 11, 
+      "name": "손 앞으로 굴리기", 
+      "media": { "preview": "media/gestures/11/preview.png" }, 
+      "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 1200, "minHighHoldMs": 150, "minLowHoldMs": 120 } 
+    },
+    { 
+      "gestureClassId": 12, 
+      "name": "손 뒤로 굴리기", 
+      "media": { "preview": "media/gestures/12/preview.png" }, 
+      "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 1200, "minHighHoldMs": 150, "minLowHoldMs": 120 } 
+    }
+  ]
+}

@@ -93,7 +93,7 @@ function App() {
   const { data: historyData } = usePoll(() => api.history({ limit: 50 }), 1000, [localeTag]);
   const { data: setsData, refresh: refreshGestureSets } = usePoll(api.gestureSets, 5000, [localeTag]);
   const { data: devicesData } = usePoll(api.devices, 1000, [localeTag]);
-  const { data: bindingsData } = usePoll(api.bindings, 1000, [localeTag]);
+  const { data: bindingsData, refresh: refreshBindings } = usePoll(api.bindings, 1000, [localeTag]);
 
   const activeSetId = setsData?.activeSetId ?? 'set0';
   const gestureSets = setsData?.items ?? [];
@@ -175,7 +175,9 @@ function App() {
   ).length;
 
   const deactivateSelectedDevice = async () => {
-    if (selectedDevice) await api.clearDeviceBindings(selectedDevice.id);
+    if (!selectedDevice) return;
+    await api.clearDeviceBindings(selectedDevice.id);
+    refreshBindings();
   };
 
   const runControlTest = async (deviceId, controlId) => {
@@ -215,7 +217,10 @@ function App() {
       deviceName: device.name,
       controlId,
       controlLabel,
-      gestureClassId: currentBinding?.gestureClassId ? String(currentBinding.gestureClassId) : '',
+      gestureClassId:
+        currentBinding?.gestureClassId === null || currentBinding?.gestureClassId === undefined
+          ? ''
+          : String(currentBinding.gestureClassId),
       triggerMode: normalizeBindingTriggerMode(currentBinding?.triggerMode, defaultMode),
       repeatIntervalMs: normalizeRepeatIntervalMs(currentBinding?.repeatIntervalMs, 600),
     });
@@ -240,6 +245,7 @@ function App() {
         triggerMode: normalizeBindingTriggerMode(bindingModal.triggerMode, 'pulse'),
         repeatIntervalMs: normalizeRepeatIntervalMs(bindingModal.repeatIntervalMs, 600),
       });
+      refreshBindings();
       closeBindingModal();
     } catch {
       /* conflict */

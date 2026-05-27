@@ -28,6 +28,42 @@
       },
       "inputs": [
         {
+          "id": "power-on",
+          "label": "전원 켜기",
+          "kind": "power",
+          "triggerMode": "pulse",
+          "triggerCommands": [
+            {
+              "channel": "power",
+              "payload": "ON"
+            }
+          ]
+        },
+        {
+          "id": "power-off",
+          "label": "전원 끄기",
+          "kind": "power",
+          "triggerMode": "pulse",
+          "triggerCommands": [
+            {
+              "channel": "power",
+              "payload": "OFF"
+            }
+          ]
+        },
+        {
+          "id": "source-menu",
+          "label": "입력 선택",
+          "kind": "source",
+          "triggerMode": "pulse",
+          "triggerCommands": [
+            {
+              "channel": "remoteKey",
+              "payload": "KEY_SOURCE"
+            }
+          ]
+        },
+        {
           "id": "hdmi1-settop-box",
           "label": "셋톱박스 (HDMI1)",
           "kind": "source",
@@ -112,6 +148,32 @@
           ]
         }
       ]
+    },
+    {
+      "id": "tenpl-plug",
+      "name": "Tenpl Smart Plug",
+      "kind": "tuya",
+      "room": "",
+      "includeDefaultInputs": true,
+      "transport": {
+        "kind": "tuya",
+        "endpoint": "tuya://eb61aa6ce49add5d80yfcj",
+        "options": {
+          "ip": "192.168.0.37",
+          "deviceId": "eb61aa6ce49add5d80yfcj",
+          "localKey": "Jg|~{5IqF<q;Hnw-",
+          "version": "3.3",
+          "port": 6668,
+          "switchDp": "1",
+          "timeoutMs": 3000
+        }
+      },
+      "metadata": {
+        "category": "cz",
+        "model": "EP2-H",
+        "productId": "hkebkzky56p1qpvp",
+        "uuid": "1a571159ffcf0b60"
+      }
     }
   ]
 }

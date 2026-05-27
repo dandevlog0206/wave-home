@@ -17,3 +17,6 @@ site/
 # IDE
 .idea/
 .vscode/
+
+# Temporary reference clones
+.tmp/

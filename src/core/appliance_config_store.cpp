@@ -133,7 +133,7 @@ namespace
 		if (kind == appliance::ApplianceKind::Tizen)
 			return "tizen";
 		if (kind == appliance::ApplianceKind::Tuya)
-			return "mqtt";
+			return "tuya";
 		return "mqtt";
 	}
 
@@ -147,6 +147,13 @@ namespace
 			const int secure_port = options.value("securePort", 8002);
 			if (!ip.empty())
 				return "wss://" + ip + ":" + std::to_string(secure_port);
+			return {};
+		}
+		if (kind == appliance::ApplianceKind::Tuya)
+		{
+			const std::string device_id = jsonString(options, "deviceId", jsonString(options, "id"));
+			if (!device_id.empty())
+				return "tuya://" + device_id;
 			return {};
 		}
 		return "mqtt://127.0.0.1:1883";
@@ -175,6 +182,21 @@ namespace
 		input.onCommands.push_back({"power", "ON"});
 		input.offCommands.push_back({"power", "OFF"});
 		return input;
+	}
+
+	void addDefaultTuyaInputs(
+		std::vector<appliance::ApplianceInputDefinition>& inputs,
+		std::unordered_set<std::string>& ids)
+	{
+		upsertInput(inputs, ids, {"power-on", "전원 켜기", "",
+			appliance::ApplianceInputKind::Power, appliance::InputTriggerMode::Pulse,
+			{{"power", "ON"}}, {}, {}, {}});
+		upsertInput(inputs, ids, {"power-off", "전원 끄기", "",
+			appliance::ApplianceInputKind::Power, appliance::InputTriggerMode::Pulse,
+			{{"power", "OFF"}}, {}, {}, {}});
+		upsertInput(inputs, ids, {"power-toggle", "전원 토글", "",
+			appliance::ApplianceInputKind::Power, appliance::InputTriggerMode::Pulse,
+			{{"power", "TOGGLE"}}, {}, {}, {}});
 	}
 
 	void addDefaultTizenInputs(
@@ -273,6 +295,20 @@ namespace
 			if (!definition.transport.options.contains("timeoutMs"))
 				definition.transport.options["timeoutMs"] = 1500;
 		}
+		if (definition.kind == appliance::ApplianceKind::Tuya)
+		{
+			if (!definition.transport.options.contains("deviceId"))
+				definition.transport.options["deviceId"] =
+					jsonString(definition.transport.options, "id");
+			if (!definition.transport.options.contains("port"))
+				definition.transport.options["port"] = 6668;
+			if (!definition.transport.options.contains("version"))
+				definition.transport.options["version"] = "3.3";
+			if (!definition.transport.options.contains("switchDp"))
+				definition.transport.options["switchDp"] = "1";
+			if (!definition.transport.options.contains("timeoutMs"))
+				definition.transport.options["timeoutMs"] = 3000;
+		}
 		if (definition.transport.endpoint.empty())
 		{
 			throw std::runtime_error(
@@ -288,11 +324,17 @@ namespace
 
 		const bool include_default_inputs = json.value(
 			"includeDefaultInputs",
-			definition.kind == appliance::ApplianceKind::Tizen);
+			definition.kind == appliance::ApplianceKind::Tizen ||
+				definition.kind == appliance::ApplianceKind::Tuya);
 		if (include_default_inputs &&
 			definition.kind == appliance::ApplianceKind::Tizen)
 		{
 			addDefaultTizenInputs(definition.inputs, input_ids);
+		}
+		if (include_default_inputs &&
+			definition.kind == appliance::ApplianceKind::Tuya)
+		{
+			addDefaultTuyaInputs(definition.inputs, input_ids);
 		}
 
 		return definition;

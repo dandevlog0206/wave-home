@@ -47,7 +47,7 @@ class GestureProbabilityGate
 public:
 	void configure(
 		const GestureSetManifest& manifest,
-		const std::unordered_map<uint32_t, GestureTriggerConfig>& overrides = {});
+		const std::unordered_map<uint32_t, GestureTriggerConfig>& binding_overrides);
 
 	void reset();
 

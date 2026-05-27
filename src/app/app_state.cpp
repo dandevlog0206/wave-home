@@ -7,6 +7,8 @@
 #include <unordered_set>
 
 #include <drogon/drogon.h>
+
+#include <thread>
 #include <nlohmann/json.hpp>
 
 #include "core/appliance_config_store.h"
@@ -277,9 +279,6 @@ void AppState::updateInference(
 
 void AppState::recordGestureTrigger(const uint32_t gesture_class_id, const float score)
 {
-	if (gesture_class_id == 0)
-		return;
-
 	std::vector<BindingEntry> matched;
 	std::string active_set;
 	std::string gesture_name;
@@ -296,6 +295,8 @@ void AppState::recordGestureTrigger(const uint32_t gesture_class_id, const float
 
 	if (matched.empty())
 	{
+		if (gesture_class_id == 0)
+			return;
 		HistoryEvent ev {};
 		ev.gestureClassId = gesture_class_id;
 		ev.gestureName = gesture_name;
@@ -308,8 +309,50 @@ void AppState::recordGestureTrigger(const uint32_t gesture_class_id, const float
 		return;
 	}
 
-	for (const auto& b : matched)
+	std::thread(
+		[self = this,
+		 bindings = std::move(matched),
+		 gesture_class_id,
+		 score,
+		 gesture_name = std::move(gesture_name),
+		 active_set = std::move(active_set)]() mutable {
+			self->dispatchBindingActions(
+				std::move(bindings),
+				gesture_class_id,
+				score,
+				std::move(gesture_name),
+				std::move(active_set));
+		})
+		.detach();
+}
+
+void AppState::dispatchBindingActions(
+	std::vector<BindingEntry> bindings,
+	const uint32_t gesture_class_id,
+	const float score,
+	std::string gesture_name,
+	std::string active_set)
+{
+	(void)active_set;
+	for (const auto& b : bindings)
 	{
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			bool still_bound = false;
+			for (const auto& current : m_bindings)
+			{
+				if (current.gestureClassId == gesture_class_id &&
+					current.deviceId == b.deviceId &&
+					current.controlId == b.controlId)
+				{
+					still_bound = true;
+					break;
+				}
+			}
+			if (!still_bound)
+				continue;
+		}
+
 		std::string error;
 		const bool ok = m_applianceManager.executeInput(
 			b.deviceId,
@@ -393,7 +436,7 @@ bool AppState::setBinding(
 	const std::string& device_id,
 	const std::string& control_id,
 	const std::string& control_label,
-	const uint32_t gesture_class_id,
+	const std::optional<uint32_t> gesture_class_id,
 	const GestureTriggerMode trigger_mode,
 	const uint32_t repeat_interval_ms)
 {
@@ -401,11 +444,17 @@ bool AppState::setBinding(
 	{
 		std::lock_guard<std::mutex> lock(m_mutex);
 
-		for (const auto& b : m_bindings)
+		if (gesture_class_id.has_value())
 		{
-			if (gesture_class_id != 0 && b.gestureClassId == gesture_class_id &&
-			    (b.deviceId != device_id || b.controlId != control_id))
-				return false;
+			m_bindings.erase(
+				std::remove_if(
+					m_bindings.begin(),
+					m_bindings.end(),
+					[&](const BindingEntry& b) {
+						return b.gestureClassId == *gesture_class_id &&
+							(b.deviceId != device_id || b.controlId != control_id);
+					}),
+				m_bindings.end());
 		}
 
 		m_bindings.erase(
@@ -417,15 +466,15 @@ bool AppState::setBinding(
 				}),
 			m_bindings.end());
 
-		if (gesture_class_id != 0)
+		if (gesture_class_id.has_value())
 		{
 			BindingEntry entry {};
 			entry.deviceId = device_id;
 			entry.controlId = control_id;
 			entry.controlLabel = control_label;
-			entry.gestureClassId = gesture_class_id;
+			entry.gestureClassId = *gesture_class_id;
 			entry.gestureName =
-				m_gestures.gestureName(m_gestures.activeSetId(), gesture_class_id);
+				m_gestures.gestureName(m_gestures.activeSetId(), *gesture_class_id);
 			entry.triggerMode = trigger_mode;
 			entry.repeatIntervalMs = std::max<uint32_t>(100, repeat_interval_ms);
 			m_bindings.push_back(entry);
@@ -433,9 +482,7 @@ bool AppState::setBinding(
 		overrides = bindingTriggerOverridesLocked();
 	}
 	syncSensorTriggerBindings(overrides);
-	std::string persist_error;
-	if (!persistServerState(&persist_error))
-		appendDevLog("warn", "server_state save failed: " + persist_error);
+	schedulePersistServerState();
 	return true;
 }
 
@@ -453,9 +500,7 @@ void AppState::clearBindingsForDevice(const std::string& device_id)
 		overrides = bindingTriggerOverridesLocked();
 	}
 	syncSensorTriggerBindings(overrides);
-	std::string persist_error;
-	if (!persistServerState(&persist_error))
-		appendDevLog("warn", "server_state save failed: " + persist_error);
+	schedulePersistServerState();
 }
 
 void AppState::clearAllBindings()
@@ -465,9 +510,7 @@ void AppState::clearAllBindings()
 		m_bindings.clear();
 	}
 	syncSensorTriggerBindings({});
-	std::string persist_error;
-	if (!persistServerState(&persist_error))
-		appendDevLog("warn", "server_state save failed: " + persist_error);
+	schedulePersistServerState();
 }
 
 bool AppState::sensorPipelineRunning() const
@@ -513,6 +556,17 @@ std::string AppState::serverStatePathLocked() const
 	return (root / "server_state.json").string();
 }
 
+void AppState::schedulePersistServerState() const
+{
+	std::thread([this] {
+		std::string persist_error;
+		if (!persistServerState(&persist_error) && !persist_error.empty())
+			const_cast<AppState*>(this)->appendDevLog(
+				"warn",
+				"server_state save failed: " + persist_error);
+	}).detach();
+}
+
 bool AppState::persistServerState(std::string* error) const
 {
 	core::ServerStateDocument document;
@@ -550,7 +604,7 @@ bool AppState::persistServerState(std::string* error) const
 
 bool AppState::bindingSupportedLocked(const BindingEntry& binding) const
 {
-	if (binding.deviceId.empty() || binding.controlId.empty() || binding.gestureClassId == 0)
+	if (binding.deviceId.empty() || binding.controlId.empty())
 		return false;
 
 	const auto* active_set = m_gestures.findSet(m_gestures.activeSetId());

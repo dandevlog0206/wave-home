@@ -6,6 +6,7 @@
 #include "appliance/tizen_appliance.h"
 #include "appliance/tizen_transport.h"
 #include "appliance/tuya_appliance.h"
+#include "appliance/tuya_transport.h"
 
 WAVE_NAMESPACE_BEGIN
 APPLIANCE_NAMESPACE_BEGIN
@@ -38,6 +39,12 @@ namespace
 		if (config.kind == "tizen")
 		{
 			return std::make_shared<TizenCommandTransport>(
+				config.endpoint,
+				config.options);
+		}
+		if (config.kind == "tuya")
+		{
+			return std::make_shared<TuyaCommandTransport>(
 				config.endpoint,
 				config.options);
 		}

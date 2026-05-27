@@ -4,20 +4,20 @@
 #include <array>
 #include <cerrno>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <memory>
 #include <optional>
-#include <poll.h>
 #include <random>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
+#include <asio.hpp>
 #include <arpa/inet.h>
-#include <fcntl.h>
-#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -109,9 +109,17 @@ namespace
 		uint16_t api_port = 8001;
 	};
 
+	enum class TizenPowerState
+	{
+		Unknown,
+		On,
+		Standby
+	};
+
 	struct TizenSession
 	{
-		SocketHandle socket;
+		std::shared_ptr<asio::io_context> io;
+		std::unique_ptr<asio::ip::tcp::socket> socket;
 		std::unique_ptr<SSL_CTX, SslCtxDeleter> ssl_ctx;
 		std::unique_ptr<SSL, SslDeleter> ssl;
 	};
@@ -197,90 +205,150 @@ namespace
 		return parsed;
 	}
 
-	[[nodiscard]] int connectTcp(
+	[[nodiscard]] bool asioConnect(
+		asio::io_context& io,
+		asio::ip::tcp::socket& socket,
 		const std::string& host,
 		const uint16_t port,
+		const std::chrono::milliseconds timeout,
+		std::string* error)
+	{
+		asio::ip::tcp::resolver resolver(io);
+		asio::error_code resolve_ec;
+		const auto endpoints = resolver.resolve(host, std::to_string(port), resolve_ec);
+		if (resolve_ec)
+		{
+			if (error)
+				*error = "tizen host resolve failed: " + resolve_ec.message();
+			return false;
+		}
+
+		asio::steady_timer timer(io);
+		bool connected = false;
+		bool completed = false;
+
+		timer.expires_after(timeout);
+		timer.async_wait([&](const std::error_code& timer_ec) {
+			if (!timer_ec && !completed)
+				socket.cancel();
+		});
+
+		asio::async_connect(socket, endpoints, [&](const std::error_code& connect_ec, const asio::ip::tcp::endpoint&) {
+			completed = true;
+			connected = !connect_ec;
+			timer.cancel();
+		});
+
+		io.restart();
+		io.run();
+
+		if (connected)
+		{
+			asio::error_code mode_ec;
+			socket.non_blocking(false, mode_ec);
+			if (mode_ec)
+			{
+				if (error)
+					*error = "tizen socket mode setup failed: " + mode_ec.message();
+				return false;
+			}
+		}
+
+		if (!connected && error)
+			*error = "tizen tcp connect timeout";
+		return connected;
+	}
+
+	[[nodiscard]] bool asioWriteAll(
+		asio::ip::tcp::socket& socket,
+		const std::string& data,
+		std::string* error)
+	{
+		asio::error_code ec;
+		asio::write(socket, asio::buffer(data), ec);
+		if (ec)
+		{
+			if (error)
+				*error = "tizen tcp write failed: " + ec.message();
+			return false;
+		}
+		return true;
+	}
+
+	[[nodiscard]] bool asioReadUntil(
+		asio::io_context& io,
+		asio::ip::tcp::socket& socket,
+		std::string& buffer,
+		const std::string& delimiter,
+		const std::chrono::milliseconds timeout,
+		std::string* error)
+	{
+		buffer.clear();
+		std::array<char, 1024> chunk {};
+		const auto deadline = std::chrono::steady_clock::now() + timeout;
+
+		while (buffer.find(delimiter) == std::string::npos)
+		{
+			if (std::chrono::steady_clock::now() >= deadline)
+			{
+				if (error)
+					*error = "tizen tcp read timeout";
+				return false;
+			}
+
+			asio::steady_timer timer(io);
+			bool completed = false;
+			std::size_t received = 0;
+			asio::error_code read_ec;
+
+			timer.expires_after(std::chrono::milliseconds(250));
+			timer.async_wait([&](const std::error_code& timer_ec) {
+				if (!timer_ec && !completed)
+					socket.cancel();
+			});
+
+			socket.async_read_some(asio::buffer(chunk), [&](const std::error_code& ec, std::size_t n) {
+				completed = true;
+				read_ec = ec;
+				received = n;
+				timer.cancel();
+			});
+
+			io.restart();
+			io.run();
+
+			if (read_ec == asio::error::operation_aborted)
+				continue;
+			if (read_ec && read_ec != asio::error::eof)
+			{
+				if (error)
+					*error = "tizen tcp read failed: " + read_ec.message();
+				return false;
+			}
+			if (received == 0)
+				continue;
+
+			buffer.append(chunk.data(), received);
+		}
+		return true;
+	}
+
+	[[nodiscard]] bool httpRequest(
+		const std::string& host,
+		const uint16_t port,
+		const std::string& request,
+		std::string* response,
 		const int timeout_ms,
 		std::string* error)
 	{
-		addrinfo hints {};
-		hints.ai_family = AF_UNSPEC;
-		hints.ai_socktype = SOCK_STREAM;
-
-		addrinfo* result = nullptr;
-		const std::string port_text = std::to_string(port);
-		const int gai_rc = ::getaddrinfo(host.c_str(), port_text.c_str(), &hints, &result);
-		if (gai_rc != 0)
-		{
-			if (error)
-				*error = ::gai_strerror(gai_rc);
-			return -1;
-		}
-
-		std::unique_ptr<addrinfo, decltype(&::freeaddrinfo)> addr_guard(result, ::freeaddrinfo);
-		for (addrinfo* addr = result; addr != nullptr; addr = addr->ai_next)
-		{
-			SocketHandle socket(::socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol));
-			if (socket.fd < 0)
-				continue;
-
-			const int original_flags = ::fcntl(socket.fd, F_GETFL, 0);
-			if (original_flags >= 0)
-				::fcntl(socket.fd, F_SETFL, original_flags | O_NONBLOCK);
-
-			const int rc = ::connect(socket.fd, addr->ai_addr, addr->ai_addrlen);
-			if (rc < 0 && errno != EINPROGRESS)
-				continue;
-
-			pollfd pfd {};
-			pfd.fd = socket.fd;
-			pfd.events = POLLOUT;
-			if (::poll(&pfd, 1, timeout_ms) <= 0)
-				continue;
-
-			int so_error = 0;
-			socklen_t so_len = sizeof(so_error);
-			if (::getsockopt(socket.fd, SOL_SOCKET, SO_ERROR, &so_error, &so_len) < 0 ||
-				so_error != 0)
-			{
-				continue;
-			}
-
-			if (original_flags >= 0)
-				::fcntl(socket.fd, F_SETFL, original_flags);
-
-			timeval tv {};
-			tv.tv_sec = timeout_ms / 1000;
-			tv.tv_usec = (timeout_ms % 1000) * 1000;
-			::setsockopt(socket.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-			::setsockopt(socket.fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-			return socket.release();
-		}
-
-		if (error)
-			*error = "connection timeout";
-		return -1;
-	}
-
-	[[nodiscard]] bool sendAll(const int fd, const std::string& data, std::string* error)
-	{
-		size_t offset = 0;
-		while (offset < data.size())
-		{
-			const ssize_t written = ::send(
-				fd,
-				data.data() + offset,
-				data.size() - offset,
-				MSG_NOSIGNAL);
-			if (written <= 0)
-			{
-				if (error)
-					*error = std::strerror(errno);
-				return false;
-			}
-			offset += static_cast<size_t>(written);
-		}
-		return true;
+		const auto timeout = std::chrono::milliseconds(std::max(500, timeout_ms));
+		asio::io_context io;
+		asio::ip::tcp::socket socket(io);
+		if (!asioConnect(io, socket, host, port, timeout, error))
+			return false;
+		if (!asioWriteAll(socket, request, error))
+			return false;
+		return asioReadUntil(io, socket, *response, "\r\n\r\n", timeout, error);
 	}
 
 	[[nodiscard]] bool sslWriteAll(SSL* ssl, const std::string& data, std::string* error)
@@ -300,25 +368,70 @@ namespace
 		return true;
 	}
 
-	[[nodiscard]] bool readUntilHttpHeaders(
-		const int fd,
+	[[nodiscard]] bool httpRequestUntilClose(
+		const std::string& host,
+		const uint16_t port,
+		const std::string& request,
 		std::string* response,
+		const int timeout_ms,
 		std::string* error)
 	{
+		const auto timeout = std::chrono::milliseconds(std::max(500, timeout_ms));
+		asio::io_context io;
+		asio::ip::tcp::socket socket(io);
+		if (!asioConnect(io, socket, host, port, timeout, error))
+			return false;
+		if (!asioWriteAll(socket, request, error))
+			return false;
+
 		response->clear();
-		std::array<char, 1024> buffer {};
-		while (response->find("\r\n\r\n") == std::string::npos)
+		std::array<char, 1024> chunk {};
+		const auto deadline = std::chrono::steady_clock::now() + timeout;
+		while (true)
 		{
-			const ssize_t received = ::recv(fd, buffer.data(), buffer.size(), 0);
-			if (received <= 0)
+			if (std::chrono::steady_clock::now() >= deadline)
 			{
 				if (error)
-					*error = received == 0 ? "socket closed by peer" : std::strerror(errno);
+					*error = "tizen http read timeout";
 				return false;
 			}
-			response->append(buffer.data(), static_cast<size_t>(received));
+
+			asio::steady_timer timer(io);
+			bool completed = false;
+			std::size_t received = 0;
+			asio::error_code read_ec;
+
+			timer.expires_after(std::chrono::milliseconds(250));
+			timer.async_wait([&](const std::error_code& timer_ec) {
+				if (!timer_ec && !completed)
+					socket.cancel();
+			});
+
+			socket.async_read_some(asio::buffer(chunk), [&](const std::error_code& ec, std::size_t n) {
+				completed = true;
+				read_ec = ec;
+				received = n;
+				timer.cancel();
+			});
+
+			io.restart();
+			io.run();
+
+			if (read_ec == asio::error::operation_aborted)
+				continue;
+			if (read_ec == asio::error::eof)
+				return true;
+			if (read_ec)
+			{
+				if (error)
+					*error = "tizen http read failed: " + read_ec.message();
+				return false;
+			}
+			if (received == 0)
+				return true;
+
+			response->append(chunk.data(), received);
 		}
-		return true;
 	}
 
 	[[nodiscard]] bool sslReadUntilHttpHeaders(
@@ -505,9 +618,17 @@ namespace
 		const std::string name = base64Encode(client_name);
 		const std::string token = getStringOption(options, "token");
 
+		const auto connect_timeout = std::chrono::milliseconds(timeout_ms);
 		TizenSession session;
-		session.socket = SocketHandle(connectTcp(endpoint.host, endpoint.secure_port, timeout_ms, error));
-		if (session.socket.fd < 0)
+		session.io = std::make_shared<asio::io_context>(1);
+		session.socket = std::make_unique<asio::ip::tcp::socket>(*session.io);
+		if (!asioConnect(
+				*session.io,
+				*session.socket,
+				endpoint.host,
+				endpoint.secure_port,
+				connect_timeout,
+				error))
 			return std::nullopt;
 
 		::SSL_load_error_strings();
@@ -529,7 +650,7 @@ namespace
 			return std::nullopt;
 		}
 
-		::SSL_set_fd(session.ssl.get(), session.socket.fd);
+		::SSL_set_fd(session.ssl.get(), static_cast<int>(session.socket->native_handle()));
 		::SSL_set_tlsext_host_name(session.ssl.get(), endpoint.host.c_str());
 		if (::SSL_connect(session.ssl.get()) != 1)
 		{
@@ -600,20 +721,13 @@ namespace
 		const int timeout_ms,
 		std::string* error)
 	{
-		SocketHandle socket(connectTcp(endpoint.host, endpoint.api_port, timeout_ms, error));
-		if (socket.fd < 0)
-			return false;
-
 		std::string request =
 			"POST /api/v2/applications/" + app_id + " HTTP/1.1\r\n"
 			"Host: " + endpoint.host + ":" + std::to_string(endpoint.api_port) + "\r\n"
 			"Connection: close\r\n"
 			"Content-Length: 0\r\n\r\n";
-		if (!sendAll(socket.fd, request, error))
-			return false;
-
 		std::string response;
-		if (!readUntilHttpHeaders(socket.fd, &response, error))
+		if (!httpRequest(endpoint.host, endpoint.api_port, request, &response, timeout_ms, error))
 			return false;
 		return response.find(" 200 ") != std::string::npos ||
 			response.find(" 201 ") != std::string::npos ||
@@ -624,9 +738,90 @@ namespace
 		const TizenEndpoint& endpoint,
 		const int timeout_ms)
 	{
+		const auto timeout = std::chrono::milliseconds(std::max(500, timeout_ms));
+		asio::io_context io;
+		asio::ip::tcp::socket socket(io);
 		std::string error;
-		SocketHandle socket(connectTcp(endpoint.host, endpoint.api_port, timeout_ms, &error));
-		return socket.fd >= 0;
+		return asioConnect(io, socket, endpoint.host, endpoint.api_port, timeout, &error);
+	}
+
+	[[nodiscard]] TizenPowerState queryPowerState(
+		const TizenEndpoint& endpoint,
+		const int timeout_ms,
+		std::string* error)
+	{
+		std::string request =
+			"GET /api/v2/ HTTP/1.1\r\n"
+			"Host: " + endpoint.host + ":" + std::to_string(endpoint.api_port) + "\r\n"
+			"Connection: close\r\n\r\n";
+		std::string response;
+		if (!httpRequestUntilClose(
+				endpoint.host,
+				endpoint.api_port,
+				request,
+				&response,
+				timeout_ms,
+				error))
+			return TizenPowerState::Unknown;
+
+		const auto header_end = response.find("\r\n\r\n");
+		if (header_end == std::string::npos)
+			return TizenPowerState::Unknown;
+
+		const std::string body = response.substr(header_end + 4);
+		if (body.empty())
+			return TizenPowerState::Unknown;
+
+		try
+		{
+			const auto json = nlohmann::json::parse(body);
+			if (!json.contains("device") || !json.at("device").is_object())
+				return TizenPowerState::Unknown;
+			const auto& device = json.at("device");
+			if (!device.contains("PowerState") || !device.at("PowerState").is_string())
+				return TizenPowerState::Unknown;
+			const std::string power_state = upperCopy(device.at("PowerState").get<std::string>());
+			if (power_state == "ON")
+				return TizenPowerState::On;
+			if (power_state == "STANDBY" || power_state == "OFF")
+				return TizenPowerState::Standby;
+		}
+		catch (const std::exception&)
+		{
+		}
+
+		return TizenPowerState::Unknown;
+	}
+
+	[[nodiscard]] bool waitForPowerState(
+		const TizenEndpoint& endpoint,
+		const TizenPowerState desired_state,
+		const int total_timeout_ms,
+		const int probe_timeout_ms,
+		const int retry_delay_ms,
+		std::string* error)
+	{
+		std::string last_error;
+		const auto deadline = std::chrono::steady_clock::now() +
+			std::chrono::milliseconds(std::max(500, total_timeout_ms));
+		while (std::chrono::steady_clock::now() < deadline)
+		{
+			if (queryPowerState(endpoint, probe_timeout_ms, &last_error) == desired_state)
+			{
+				if (error)
+					error->clear();
+				return true;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(std::max(100, retry_delay_ms)));
+		}
+
+		if (error)
+		{
+			*error = last_error.empty()
+				? "timed out waiting for Tizen power state"
+				: last_error;
+		}
+		return false;
 	}
 
 	[[nodiscard]] std::optional<std::array<unsigned char, 6>> parseMac(const std::string& mac)
@@ -741,20 +936,68 @@ bool TizenCommandTransport::ensureSessionLocked(std::string* error)
 	return true;
 }
 
-bool TizenCommandTransport::sendRemotePayloadLocked(
+bool TizenCommandTransport::trySendRemotePayloadLocked(
 	const std::string& payload,
 	std::string* error)
 {
 	if (!ensureSessionLocked(error))
 		return false;
-
-	if (sendWsTextFrame(m_session->transport.ssl.get(), payload, error))
-		return true;
-
-	closeSessionLocked();
-	if (!ensureSessionLocked(error))
-		return false;
 	return sendWsTextFrame(m_session->transport.ssl.get(), payload, error);
+}
+
+bool TizenCommandTransport::sendRemotePayload(const std::string& payload, std::string* error)
+{
+	std::string last_error;
+	const int retry_window_ms = std::max(1000, getIntOption(m_options, "commandRetryWindowMs", 5000));
+	const int retry_delay_ms = std::max(100, getIntOption(m_options, "commandRetryDelayMs", 350));
+	const auto deadline = std::chrono::steady_clock::now() +
+		std::chrono::milliseconds(retry_window_ms);
+
+	while (true)
+	{
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			if (trySendRemotePayloadLocked(payload, &last_error))
+				return true;
+			closeSessionLocked();
+		}
+
+		if (std::chrono::steady_clock::now() >= deadline)
+			break;
+		std::this_thread::sleep_for(std::chrono::milliseconds(retry_delay_ms));
+	}
+
+	if (error)
+		*error = last_error;
+	return false;
+}
+
+bool TizenCommandTransport::waitForSessionReady(std::string* error)
+{
+	const int session_ready_wait_ms =
+		std::max(1000, getIntOption(m_options, "sessionReadyWaitMs", 6000));
+	const int power_retry_delay_ms = std::max(150, getIntOption(m_options, "powerRetryDelayMs", 400));
+	std::string last_error;
+	const auto deadline = std::chrono::steady_clock::now() +
+		std::chrono::milliseconds(session_ready_wait_ms);
+	while (std::chrono::steady_clock::now() < deadline)
+	{
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			closeSessionLocked();
+			if (ensureSessionLocked(&last_error))
+			{
+				if (error)
+					error->clear();
+				return true;
+			}
+		}
+		std::this_thread::sleep_for(std::chrono::milliseconds(power_retry_delay_ms));
+	}
+
+	if (error)
+		*error = last_error.empty() ? "timed out waiting for Tizen remote session" : last_error;
+	return false;
 }
 
 void TizenCommandTransport::closeSessionLocked()
@@ -764,9 +1007,11 @@ void TizenCommandTransport::closeSessionLocked()
 
 bool TizenCommandTransport::publish(const std::string& channel, const std::string& payload)
 {
-	std::lock_guard<std::mutex> lock(m_mutex);
-	m_lastError.clear();
-	m_state = TransportConnectionState::Connecting;
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_lastError.clear();
+		m_state = TransportConnectionState::Connecting;
+	}
 
 	bool ok = false;
 	if (channel == "remoteKey" || channel == "command")
@@ -780,10 +1025,17 @@ bool TizenCommandTransport::publish(const std::string& channel, const std::strin
 	else if (channel == "art")
 		ok = sendArtCommand(payload);
 	else
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
 		setErrorLocked("unsupported tizen command channel: " + channel);
+	}
 
+	std::lock_guard<std::mutex> lock(m_mutex);
 	if (ok)
+	{
 		m_state = TransportConnectionState::Connected;
+		m_lastError.clear();
+	}
 	else if (m_state != TransportConnectionState::Error)
 		m_state = TransportConnectionState::Disconnected;
 	return ok;
@@ -848,6 +1100,7 @@ bool TizenCommandTransport::sendRemoteKey(const std::string& key)
 	const std::string trimmed = trimCopy(key);
 	if (trimmed.empty())
 	{
+		std::lock_guard<std::mutex> lock(m_mutex);
 		setErrorLocked("missing remote key");
 		return false;
 	}
@@ -863,8 +1116,9 @@ bool TizenCommandTransport::sendRemoteKey(const std::string& key)
 	};
 
 	std::string error;
-	if (!sendRemotePayloadLocked(payload.dump(), &error))
+	if (!sendRemotePayload(payload.dump(), &error))
 	{
+		std::lock_guard<std::mutex> lock(m_mutex);
 		setErrorLocked(error);
 		return false;
 	}
@@ -876,25 +1130,109 @@ bool TizenCommandTransport::sendPowerCommand(const std::string& payload)
 	const std::string command = upperCopy(trimCopy(payload));
 	if (command.empty())
 	{
+		std::lock_guard<std::mutex> lock(m_mutex);
 		setErrorLocked("missing power command");
 		return false;
 	}
 
 	const TizenEndpoint endpoint = parseEndpoint(m_endpoint, m_options);
 	const int timeout_ms = std::max(500, getIntOption(m_options, "timeoutMs", 1500));
+	const int power_retry_delay_ms = std::max(150, getIntOption(m_options, "powerRetryDelayMs", 400));
+	const int power_on_wait_ms = std::max(2000, getIntOption(m_options, "powerOnWaitMs", 12000));
+	std::string query_error;
+	const TizenPowerState power_state = queryPowerState(endpoint, timeout_ms, &query_error);
 	if (command == "ON")
 	{
-		if (isApiReachable(endpoint, timeout_ms))
-			return sendRemoteKey("KEY_POWER");
-		if (wakeOnLan())
+		if (power_state == TizenPowerState::On)
+		{
+			std::string session_error;
+			(void)waitForSessionReady(&session_error);
 			return true;
+		}
+
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			closeSessionLocked();
+		}
+		bool wake_requested = false;
 		if (sendRemoteKey("KEY_POWER"))
-			return true;
-		return false;
+			wake_requested = true;
+		else if (wakeOnLan())
+			wake_requested = true;
+		if (!wake_requested)
+			return false;
+
+		std::string wait_error;
+		if (!waitForPowerState(
+				endpoint,
+				TizenPowerState::On,
+				power_on_wait_ms,
+				timeout_ms,
+				power_retry_delay_ms,
+				&wait_error))
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			setErrorLocked(wait_error);
+			return false;
+		}
+
+		if (!waitForSessionReady(&wait_error))
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			setErrorLocked(wait_error);
+			return false;
+		}
+		return true;
 	}
 
 	if (command == "OFF")
-		return sendRemoteKey("KEY_POWER");
+	{
+		if (power_state == TizenPowerState::Standby)
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			closeSessionLocked();
+			return true;
+		}
+
+		std::string last_error;
+		const int session_ready_wait_ms =
+			std::max(1000, getIntOption(m_options, "sessionReadyWaitMs", 6000));
+		const auto deadline = std::chrono::steady_clock::now() +
+			std::chrono::milliseconds(session_ready_wait_ms);
+		while (true)
+		{
+			{
+				std::lock_guard<std::mutex> lock(m_mutex);
+				closeSessionLocked();
+			}
+			if (sendRemoteKey("KEY_POWER"))
+			{
+				std::lock_guard<std::mutex> lock(m_mutex);
+				closeSessionLocked();
+				return true;
+			}
+			{
+				std::lock_guard<std::mutex> lock(m_mutex);
+				last_error = m_lastError;
+			}
+			if (queryPowerState(endpoint, timeout_ms, &query_error) == TizenPowerState::Standby)
+			{
+				std::lock_guard<std::mutex> lock(m_mutex);
+				closeSessionLocked();
+				return true;
+			}
+			if (std::chrono::steady_clock::now() >= deadline)
+				break;
+			std::this_thread::sleep_for(std::chrono::milliseconds(power_retry_delay_ms));
+		}
+
+		if (!last_error.empty())
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			setErrorLocked(last_error);
+		}
+		return false;
+	}
 
 	return sendRemoteKey(command);
 }
@@ -904,6 +1242,7 @@ bool TizenCommandTransport::sendAppCommand(const std::string& app_id)
 	const std::string trimmed = trimCopy(app_id);
 	if (trimmed.empty())
 	{
+		std::lock_guard<std::mutex> lock(m_mutex);
 		setErrorLocked("missing application id");
 		return false;
 	}
@@ -916,6 +1255,7 @@ bool TizenCommandTransport::sendAppCommand(const std::string& app_id)
 			std::max(500, getIntOption(m_options, "timeoutMs", 1500)),
 			&error))
 	{
+		std::lock_guard<std::mutex> lock(m_mutex);
 		setErrorLocked(error.empty() ? "failed to launch application" : error);
 		return false;
 	}
@@ -927,6 +1267,7 @@ bool TizenCommandTransport::sendSourceCommand(const std::string& source)
 	std::string key = upperCopy(trimCopy(source));
 	if (key.empty())
 	{
+		std::lock_guard<std::mutex> lock(m_mutex);
 		setErrorLocked("missing source value");
 		return false;
 	}
@@ -940,7 +1281,10 @@ bool TizenCommandTransport::sendArtCommand(const std::string& payload)
 	const std::string command = upperCopy(trimCopy(payload));
 	if (command == "ART")
 		return sendAppCommand("com.samsung.tv.gallery");
-	setErrorLocked("unsupported art command");
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		setErrorLocked("unsupported art command");
+	}
 	return false;
 }
 
@@ -949,6 +1293,7 @@ bool TizenCommandTransport::wakeOnLan()
 	std::string error;
 	if (!sendMagicPacket(getStringOption(m_options, "mac"), &error))
 	{
+		std::lock_guard<std::mutex> lock(m_mutex);
 		setErrorLocked(error.empty() ? "failed to send wake-on-lan packet" : error);
 		return false;
 	}

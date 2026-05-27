@@ -24,9 +24,7 @@ else()
 endif()
 
 include("${CMAKE_SOURCE_DIR}/cmake/deps.cmake")
-if(WAVE_BUILD_NCNN)
-    include("${CMAKE_SOURCE_DIR}/cmake/asio.cmake")
-endif()
+include("${CMAKE_SOURCE_DIR}/cmake/asio.cmake")
 
 # --- Drogon: disable unused components ---
 set(BUILD_CTL OFF CACHE BOOL "" FORCE)

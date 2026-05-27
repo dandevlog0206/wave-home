@@ -10,6 +10,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -109,7 +110,7 @@ public:
 		const std::string& device_id,
 		const std::string& control_id,
 		const std::string& control_label,
-		uint32_t gesture_class_id,
+		std::optional<uint32_t> gesture_class_id,
 		GestureTriggerMode trigger_mode,
 		uint32_t repeat_interval_ms);
 	void clearBindingsForDevice(const std::string& device_id);
@@ -136,10 +137,17 @@ private:
 	std::string applianceConfigPathLocked() const;
 	std::string serverStatePathLocked() const;
 	bool persistServerState(std::string* error = nullptr) const;
+	void schedulePersistServerState() const;
 	bool pruneInvalidBindingsLocked(std::vector<std::string>* warnings = nullptr);
 	bool bindingSupportedLocked(const BindingEntry& binding) const;
 	std::unordered_map<uint32_t, GestureTriggerConfig> bindingTriggerOverridesLocked() const;
 	void syncSensorTriggerBindings(const std::unordered_map<uint32_t, GestureTriggerConfig>& overrides);
+	void dispatchBindingActions(
+		std::vector<BindingEntry> bindings,
+		uint32_t gesture_class_id,
+		float score,
+		std::string gesture_name,
+		std::string active_set);
 
 	mutable std::mutex m_mutex;
 	std::string m_configRoot;

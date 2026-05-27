@@ -80,6 +80,11 @@ struct SensorPipeline::Impl
 	std::unique_ptr<retina::RetinaClient> client;
 	std::string gesture_set_root;
 
+	std::mutex binding_sync_mutex;
+	std::unordered_map<uint32_t, GestureTriggerConfig> pending_binding_overrides;
+	std::atomic<bool> binding_overrides_dirty {false};
+
+	void applyPendingBindingOverridesLocked();
 	void connectionLoop();
 	void inferenceLoop();
 	void publishRadarDisconnected();
@@ -121,7 +126,7 @@ void SensorPipeline::start(const std::string& gesture_set_root)
 	{
 		std::lock_guard<std::mutex> lock(m_impl->inference_mutex);
 		m_impl->inference.load(m_impl->catalog.activeSet().modelJsonPath.c_str());
-		m_impl->probabilityGate.configure(m_impl->catalog.activeSet());
+		m_impl->probabilityGate.configure(m_impl->catalog.activeSet(), {});
 	}
 	catch (const std::exception& ex)
 	{
@@ -189,8 +194,7 @@ bool SensorPipeline::reloadActiveSet(const std::string& set_id)
 		{
 			std::lock_guard<std::mutex> inference_lock(m_impl->inference_mutex);
 			m_impl->inference.load(m_impl->catalog.activeSet().modelJsonPath.c_str());
-			m_impl->probabilityGate.configure(m_impl->catalog.activeSet());
-			m_impl->probabilityGate.reset();
+			m_impl->applyPendingBindingOverridesLocked();
 		}
 		LOG_INFO << "sensor_pipeline: reloaded model for " << set_id;
 		devLog("info", "sensor_pipeline: reloaded model for " + set_id);
@@ -201,10 +205,22 @@ bool SensorPipeline::reloadActiveSet(const std::string& set_id)
 		LOG_WARN << "sensor_pipeline: reload failed for " << set_id << ": " << ex.what();
 		devLog("error", std::string("sensor_pipeline: model reload failed · ") + set_id + ": " + ex.what());
 		std::lock_guard<std::mutex> inference_lock(m_impl->inference_mutex);
-		m_impl->probabilityGate.configure(m_impl->catalog.activeSet());
-		m_impl->probabilityGate.reset();
+		m_impl->applyPendingBindingOverridesLocked();
 		return false;
 	}
+}
+
+void SensorPipeline::Impl::applyPendingBindingOverridesLocked()
+{
+	std::unordered_map<uint32_t, GestureTriggerConfig> overrides;
+	{
+		std::lock_guard<std::mutex> sync_lock(binding_sync_mutex);
+		overrides = pending_binding_overrides;
+	}
+	binding_overrides_dirty.store(false, std::memory_order_release);
+
+	probabilityGate.configure(catalog.activeSet(), overrides);
+	probabilityGate.reset();
 }
 
 void SensorPipeline::reloadTriggerBindings(
@@ -213,9 +229,11 @@ void SensorPipeline::reloadTriggerBindings(
 	if (!m_running.load())
 		return;
 
-	std::lock_guard<std::mutex> lock(m_impl->inference_mutex);
-	m_impl->probabilityGate.configure(m_impl->catalog.activeSet(), overrides);
-	m_impl->probabilityGate.reset();
+	{
+		std::lock_guard<std::mutex> lock(m_impl->binding_sync_mutex);
+		m_impl->pending_binding_overrides = overrides;
+	}
+	m_impl->binding_overrides_dirty.store(true, std::memory_order_release);
 	devLog("info", "sensor_pipeline: trigger bindings updated");
 }
 
@@ -418,6 +436,8 @@ void SensorPipeline::Impl::inferenceLoop()
 			std::vector<wave::GestureTriggerEvent> events;
 			{
 				std::lock_guard<std::mutex> lock(inference_mutex);
+				if (binding_overrides_dirty.load(std::memory_order_acquire))
+					applyPendingBindingOverridesLocked();
 				inference.enqueueFrame(std::move(points), net::FRAME_IDX_BACK);
 
 				if (!inference.hasSequence(net::SEQUENCE_IDX_BACK))

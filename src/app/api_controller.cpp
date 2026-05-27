@@ -329,7 +329,7 @@ void ApiController::putBinding(const drogon::HttpRequestPtr& req, HTTPCallback&&
 		100u,
 		json->get("repeatIntervalMs", 600).asUInt());
 
-	uint32_t gesture_class_id = 0;
+	std::optional<uint32_t> gesture_class_id;
 	if (json->isMember("gestureClassId") && !(*json)["gestureClassId"].isNull())
 		gesture_class_id = (*json)["gestureClassId"].asUInt();
 
@@ -364,7 +364,7 @@ void ApiController::putBinding(const drogon::HttpRequestPtr& req, HTTPCallback&&
 	callback(jsonResponse({
 		{"deviceId", device_id},
 		{"controlId", control_id},
-		{"gestureClassId", gesture_class_id},
+		{"gestureClassId", gesture_class_id ? nlohmann::json(*gesture_class_id) : nlohmann::json(nullptr)},
 		{"triggerMode", triggerModeName(trigger_mode)},
 		{"repeatIntervalMs", repeat_interval_ms},
 	}));

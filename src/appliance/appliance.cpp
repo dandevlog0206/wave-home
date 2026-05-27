@@ -176,6 +176,13 @@ nlohmann::json Appliance::buildTransportJson() const
 		redacted_options.erase("token");
 		redacted_options["tokenPresent"] = has_token;
 	}
+	if (redacted_options.contains("localKey"))
+	{
+		const bool has_local_key = redacted_options.at("localKey").is_string() &&
+			!redacted_options.at("localKey").get<std::string>().empty();
+		redacted_options.erase("localKey");
+		redacted_options["localKeyPresent"] = has_local_key;
+	}
 
 	nlohmann::json json = {
 		{"kind", m_definition.transport.kind},

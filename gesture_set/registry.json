@@ -1,10 +1,12 @@
 {
   "version": "1.0",
-  "defaultActiveSetId": "set2",
+  "defaultActiveSetId": "set5",
   "sets": [
     { "id": "set0", "path": "set0", "displayOrder": 0, "enabled": true },
     { "id": "set1", "path": "set1", "displayOrder": 1, "enabled": true },
     { "id": "set2", "path": "set2", "displayOrder": 2, "enabled": true },
-    { "id": "set3", "path": "set3", "displayOrder": 3, "enabled": true }
+    { "id": "set3", "path": "set3", "displayOrder": 3, "enabled": true },
+    { "id": "set4", "path": "set4", "displayOrder": 4, "enabled": true },
+    { "id": "set5", "path": "set5", "displayOrder": 5, "enabled": true }
   ]
 }

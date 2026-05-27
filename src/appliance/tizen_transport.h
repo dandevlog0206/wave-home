@@ -32,7 +32,9 @@ private:
 	struct Session;
 
 	bool ensureSessionLocked(std::string* error);
-	bool sendRemotePayloadLocked(const std::string& payload, std::string* error);
+	bool trySendRemotePayloadLocked(const std::string& payload, std::string* error);
+	bool sendRemotePayload(const std::string& payload, std::string* error);
+	bool waitForSessionReady(std::string* error);
 	void closeSessionLocked();
 
 	bool sendRemoteKey(const std::string& key);

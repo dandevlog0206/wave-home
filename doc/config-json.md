@@ -70,6 +70,54 @@ Minimal shape:
   - `channel_down`
   - `home`
 - Custom `inputs` are optional and are merged before the default Tizen inputs.
+- For `tuya`, `includeDefaultInputs` defaults to `true`, which automatically adds:
+  - `power-on` (pulse, `power` / `ON`)
+  - `power-off` (pulse, `power` / `OFF`)
+  - `power-toggle` (pulse, `power` / `TOGGLE`)
+
+### Tuya transport (`kind: "tuya"`)
+
+LAN control uses Tuya protocol 3.3 over TCP port `6668`. The server and plug must be on the same subnet. Use the plug's **local** IP (not the cloud API address).
+
+```json
+{
+  "id": "tenpl-plug",
+  "name": "Tenpl Smart Plug",
+  "kind": "tuya",
+  "includeDefaultInputs": true,
+  "transport": {
+    "kind": "tuya",
+    "endpoint": "tuya://eb61aa6ce49add5d80yfcj",
+    "options": {
+      "ip": "192.168.0.37",
+      "deviceId": "eb61aa6ce49add5d80yfcj",
+      "localKey": "YOUR_LOCAL_KEY",
+      "version": "3.3",
+      "port": 6668,
+      "switchDp": "1",
+      "timeoutMs": 3000
+    }
+  }
+}
+```
+
+| Option | Description |
+|--------|-------------|
+| `ip` | LAN IP of the device |
+| `deviceId` | Tuya device id |
+| `localKey` | Local encryption key (never exposed in API; redacted in debug output) |
+| `version` | Protocol version (`3.3` supported in MVP) |
+| `port` | TCP port (default `6668`) |
+| `switchDp` | Data point id for on/off (default `"1"` for smart plugs) |
+| `timeoutMs` | Connect/read timeout |
+
+Command channels used by inputs:
+
+| channel | payload | Action |
+|---------|---------|--------|
+| `power` | `ON` / `OFF` / `TOGGLE` | Switch DP on, off, or query-then-flip |
+| `dps` | JSON object | Set arbitrary DPS map, e.g. `{"1":true}` |
+| `query` | (empty) | Read current device status |
 
 ### Input fields
 
