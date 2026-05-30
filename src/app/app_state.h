@@ -4,6 +4,7 @@
 #include "device/gesture_probability_gate.h"
 #include "device/sensor_pipeline.h"
 #include "gesture_repository.h"
+#include "util/cpu_sampler.h"
 
 #include <chrono>
 #include <cstdint>
@@ -65,6 +66,8 @@ struct InferenceProfilingView
 	std::string temporalAggregatorArchitecture;
 	std::vector<float> frameEncoderMs;
 	std::vector<float> temporalAggregatorMs;
+	std::vector<float> combinedMs;
+	std::vector<float> cpuPercent;
 };
 
 struct InferenceSnapshot
@@ -91,6 +94,9 @@ public:
 	void setServerStartedAt(std::chrono::steady_clock::time_point t);
 	void setNcnnProfilingEnabled(bool enabled);
 	bool ncnnProfilingEnabled() const;
+	void recordInferencePipelineMs(float pipeline_ms);
+	void sampleCpuForProfiling();
+	void fillProfilingExtras(InferenceProfilingView& view) const;
 
 	void updateRadar(const RadarState& radar);
 	void updateInference(const InferenceSnapshot& inference, const std::vector<wave::GestureGateDebug>& gates);
@@ -165,6 +171,9 @@ private:
 	std::string m_configRoot;
 	std::string m_gestureRoot;
 	bool m_ncnnProfilingEnabled = false;
+	std::deque<float> m_combinedInferenceMs;
+	std::deque<float> m_cpuPercentHistory;
+	util::CpuSampler m_cpuSampler;
 	GestureRepository m_gestures;
 
 	RadarState m_radar;

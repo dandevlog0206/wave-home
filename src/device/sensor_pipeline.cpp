@@ -6,6 +6,7 @@
 #include <thread>
 #include <drogon/drogon.h>
 #include <asio.hpp>
+#include <benchmark.h>
 #include "app/app_state.h"
 #include "gesture_probability_gate.h"
 #include "gesture_set_catalog.h"
@@ -295,6 +296,7 @@ void SensorPipeline::Impl::publishInferenceResult()
 			snap.profiling.temporalAggregatorArchitecture = profile.temporalAggregatorArchitecture;
 			snap.profiling.frameEncoderMs = profile.frameEncoderMs;
 			snap.profiling.temporalAggregatorMs = profile.temporalAggregatorMs;
+			AppState::instance().fillProfilingExtras(snap.profiling);
 		}
 
 		if (!has_sequence && !profiling_enabled)
@@ -453,6 +455,8 @@ void SensorPipeline::Impl::inferenceLoop()
 			}
 
 			std::vector<wave::GestureTriggerEvent> events;
+			const bool profile_pipeline = AppState::instance().ncnnProfilingEnabled();
+			const double profile_start = profile_pipeline ? ncnn::get_current_time() : 0.0;
 			{
 				std::lock_guard<std::mutex> lock(inference_mutex);
 				if (binding_overrides_dirty.load(std::memory_order_acquire))
@@ -464,6 +468,12 @@ void SensorPipeline::Impl::inferenceLoop()
 					const auto probs = inference.getSequenceProbabilities(net::SEQUENCE_IDX_BACK);
 					events = probabilityGate.update(probs);
 				}
+			}
+			if (profile_pipeline)
+			{
+				AppState::instance().recordInferencePipelineMs(
+					static_cast<float>(ncnn::get_current_time() - profile_start));
+				AppState::instance().sampleCpuForProfiling();
 			}
 			publishInferenceResult();
 

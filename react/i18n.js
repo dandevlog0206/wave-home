@@ -153,6 +153,11 @@ const MESSAGES = {
     'page.developer.inferenceProfile.pointnet': 'Frame Encoder(PointNet)',
     'page.developer.inferenceProfile.aggregator': 'Frame Aggregator ({arch})',
     'page.developer.inferenceProfile.latest': '최근 {ms} ms',
+    'page.developer.inferenceProfile.latestPercent': '최근 {percent}%',
+    'page.developer.inferenceProfile.combined': '합산 추론 (프레임 파이프라인)',
+    'page.developer.inferenceProfile.combinedHint': 'PointNet + Aggregator 포함',
+    'page.developer.inferenceProfile.cpu': '프로세스 CPU',
+    'page.developer.inferenceProfile.cpuHint': 'wave-server 기준',
     'page.developer.inferenceProfile.waiting': '대기 중…',
 
     'history.iconGesture': '✦',
@@ -309,6 +314,11 @@ const MESSAGES = {
     'page.developer.inferenceProfile.pointnet': 'Frame Encoder(PointNet)',
     'page.developer.inferenceProfile.aggregator': 'Frame Aggregator ({arch})',
     'page.developer.inferenceProfile.latest': 'Latest {ms} ms',
+    'page.developer.inferenceProfile.latestPercent': 'Latest {percent}%',
+    'page.developer.inferenceProfile.combined': 'Combined inference (per frame)',
+    'page.developer.inferenceProfile.combinedHint': 'Full pipeline incl. PointNet + Aggregator',
+    'page.developer.inferenceProfile.cpu': 'Process CPU',
+    'page.developer.inferenceProfile.cpuHint': 'wave-server process',
     'page.developer.inferenceProfile.waiting': 'Waiting…',
 
     'history.iconGesture': '✦',

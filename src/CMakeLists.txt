@@ -7,6 +7,7 @@ add_executable(wave-server
     core/locale.cpp
     core/server_state_store.cpp
     util/arg_parser.cpp
+    util/cpu_sampler.cpp
     device/network.cpp
     device/inference_engine.cpp
     device/retina.cpp

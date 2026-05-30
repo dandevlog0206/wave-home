@@ -256,16 +256,61 @@ void AppState::setServerStartedAt(const std::chrono::steady_clock::time_point t)
 	m_serverStarted = t;
 }
 
+namespace
+{
+	constexpr size_t kProfilingHistorySize = 180;
+
+	void appendProfilingSample(std::deque<float>& history, const float value)
+	{
+		history.push_back(value);
+		while (history.size() > kProfilingHistorySize)
+			history.pop_front();
+	}
+}
+
 void AppState::setNcnnProfilingEnabled(const bool enabled)
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
 	m_ncnnProfilingEnabled = enabled;
+	if (!enabled)
+	{
+		m_combinedInferenceMs.clear();
+		m_cpuPercentHistory.clear();
+	}
 }
 
 bool AppState::ncnnProfilingEnabled() const
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
 	return m_ncnnProfilingEnabled;
+}
+
+void AppState::recordInferencePipelineMs(const float pipeline_ms)
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (!m_ncnnProfilingEnabled)
+		return;
+	appendProfilingSample(m_combinedInferenceMs, pipeline_ms);
+}
+
+void AppState::sampleCpuForProfiling()
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	if (!m_ncnnProfilingEnabled)
+		return;
+
+	float percent = 0.f;
+	if (!m_cpuSampler.sampleProcessCpuPercent(&percent))
+		return;
+
+	appendProfilingSample(m_cpuPercentHistory, percent);
+}
+
+void AppState::fillProfilingExtras(InferenceProfilingView& view) const
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	view.combinedMs.assign(m_combinedInferenceMs.begin(), m_combinedInferenceMs.end());
+	view.cpuPercent.assign(m_cpuPercentHistory.begin(), m_cpuPercentHistory.end());
 }
 
 void AppState::updateRadar(const RadarState& radar)
@@ -839,16 +884,20 @@ std::string AppState::buildDevJson() const
 	};
 	if (inf.profiling.enabled)
 	{
+		InferenceProfilingView profile_view = inf.profiling;
+		fillProfilingExtras(profile_view);
 		j["inferenceProfile"] = {
 			{"enabled", true},
 			{"frameEncoder", {
-				{"name", inf.profiling.frameEncoderName},
-				{"samplesMs", inf.profiling.frameEncoderMs},
+				{"name", profile_view.frameEncoderName},
+				{"samplesMs", profile_view.frameEncoderMs},
 			}},
 			{"temporalAggregator", {
-				{"architecture", inf.profiling.temporalAggregatorArchitecture},
-				{"samplesMs", inf.profiling.temporalAggregatorMs},
+				{"architecture", profile_view.temporalAggregatorArchitecture},
+				{"samplesMs", profile_view.temporalAggregatorMs},
 			}},
+			{"combined", {{"samplesMs", profile_view.combinedMs}}},
+			{"cpu", {{"samplesPercent", profile_view.cpuPercent}}},
 		};
 	}
 	else

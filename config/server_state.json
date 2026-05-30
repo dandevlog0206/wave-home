@@ -1,39 +1,6 @@
 {
   "activeSetId": "set4",
-  "bindings": [
-    {
-      "controlId": "power-on",
-      "controlLabel": "전원 켜기",
-      "deviceId": "tenpl-plug",
-      "gestureClassId": 2,
-      "repeatIntervalMs": 600,
-      "triggerMode": "pulse"
-    },
-    {
-      "controlId": "channel_up",
-      "controlLabel": "다음 채널",
-      "deviceId": "samsung-monitor",
-      "gestureClassId": 1,
-      "repeatIntervalMs": 600,
-      "triggerMode": "pulse"
-    },
-    {
-      "controlId": "volume_up",
-      "controlLabel": "볼륨 올리기",
-      "deviceId": "samsung-monitor",
-      "gestureClassId": 11,
-      "repeatIntervalMs": 100,
-      "triggerMode": "repeat"
-    },
-    {
-      "controlId": "volume_down",
-      "controlLabel": "볼륨 내리기",
-      "deviceId": "samsung-monitor",
-      "gestureClassId": 12,
-      "repeatIntervalMs": 100,
-      "triggerMode": "repeat"
-    }
-  ],
+  "bindings": [],
   "settings": {},
   "version": 1
 }
