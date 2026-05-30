@@ -120,6 +120,14 @@ struct ModelInfo
 	float validationAccuracy;
 };
 
+struct InferenceProfilingSnapshot
+{
+	std::string frameEncoderName;
+	std::string temporalAggregatorArchitecture;
+	std::vector<float> frameEncoderMs;
+	std::vector<float> temporalAggregatorMs;
+};
+
 struct QueuePolicy
 {
 	// maximum number of frames to keep in the queue; if exceeded, the oldest frames will be dropped
@@ -166,7 +174,11 @@ public:
 	const std::vector<float>& getSequenceProbabilities(SequenceIdx sequence_idx = SEQUENCE_IDX_BACK) const;
 	const std::vector<float>& getSequencePostProcessorOutput(SequenceIdx sequence_idx = SEQUENCE_IDX_BACK) const;
 	const std::vector<float>& getSequenceEmbeddingMap(SequenceIdx sequence_idx = SEQUENCE_IDX_BACK, uint32_t sequence_length = SEQUENCE_LENGTH_DEFAULT) const;
-	
+
+	void setProfilingEnabled(bool enabled);
+	bool profilingEnabled() const;
+	InferenceProfilingSnapshot profilingSnapshot() const;
+
 	void clear();
 
 private:

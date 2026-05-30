@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { devStreamUrl } from './api';
 import { COLORMAP_NAMES, embeddingDisplayValue, sampleColormap } from './colormaps';
+import InferenceProfilePlots from './InferenceProfilePlots';
 import { createTranslator } from './i18n';
 
 function formatLogTime(iso, localeTag, t) {
@@ -8,6 +9,61 @@ function formatLogTime(iso, localeTag, t) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleTimeString(localeTag, { hour12: false });
+}
+
+function formatRadarDetail(detail, reconnectSec, t) {
+  if (!detail) return t('common.none');
+  if (detail === 'radar.detail.live') return t('page.developer.radarDetail.live');
+  if (detail === 'radar.detail.disconnected') return t('page.developer.radarDetail.disconnected');
+  if (detail === 'radar.detail.connecting') {
+    if (reconnectSec > 0) {
+      return t('page.developer.radarDetail.connectingCountdown', { sec: reconnectSec });
+    }
+    return t('page.developer.radarDetail.connecting');
+  }
+  if (detail === 'radar.detail.scanning') return t('page.developer.radarDetail.scanning');
+  return detail;
+}
+
+function formatLastPacket(iso, localeTag, t) {
+  if (!iso) return t('common.none');
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleTimeString(localeTag, { hour12: false });
+}
+
+function topGestureLabel(probs, labels) {
+  if (!probs?.length) return null;
+  let bestIdx = 0;
+  let bestScore = probs[0] ?? 0;
+  probs.forEach((score, idx) => {
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = idx;
+    }
+  });
+  const name = labels[String(bestIdx)] ?? `class ${bestIdx}`;
+  return `${name} (${(bestScore * 100).toFixed(1)}%)`;
+}
+
+function DevKvGrid({ groups }) {
+  return (
+    <div className="dev-status-grid">
+      {groups.map((group) => (
+        <section className="dev-status-group" key={group.title}>
+          <h3>{group.title}</h3>
+          <dl className="dev-kv dev-kv-columns">
+            {group.items.map((item) => (
+              <div key={item.label}>
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ))}
+    </div>
+  );
 }
 
 function formatUptime(sec, localeTag) {
@@ -112,6 +168,74 @@ export default function DevPage({ localeTag = 'en-US', t: providedT }) {
   const labels = snap?.classLabels ?? {};
   const probs = snap?.probabilities ?? [];
   const logs = snap?.logs ?? [];
+  const radar = snap?.radar ?? {};
+  const embedding = snap?.embedding ?? {};
+  const devMeta = snap?.devMeta ?? {};
+  const profileEnabled = Boolean(snap?.inferenceProfile?.enabled);
+
+  const statusGroups = [
+    {
+      title: t('page.developer.statusGroup.server'),
+      items: [
+        { label: t('page.developer.uptime'), value: formatUptime(snap?.serverUptimeSec ?? 0, localeTag) },
+        { label: t('page.developer.activeSet'), value: snap?.activeSetId ?? t('common.none') },
+        {
+          label: t('page.developer.websocket'),
+          value: wsState === 'live' ? t('page.developer.websocket.live') : t(`page.developer.websocket.${wsState}`),
+        },
+        {
+          label: t('page.developer.ncnnProfiling'),
+          value: profileEnabled || devMeta.ncnnProfiling
+            ? t('page.developer.enabled')
+            : t('page.developer.disabled'),
+        },
+        { label: t('page.developer.bindingCount'), value: String(devMeta.bindingCount ?? 0) },
+        { label: t('page.developer.todayGestures'), value: String(devMeta.todayGestureCount ?? 0) },
+      ],
+    },
+    {
+      title: t('page.developer.statusGroup.radar'),
+      items: [
+        {
+          label: t('page.developer.connection'),
+          value: radar.connected ? t('page.developer.connected') : t('page.developer.disconnected'),
+        },
+        { label: t('page.developer.radarStatus'), value: radar.status || t('common.none') },
+        {
+          label: t('page.developer.radarDetailLabel'),
+          value: formatRadarDetail(radar.detail, radar.reconnectCountdownSec ?? 0, t),
+        },
+        { label: t('page.developer.ip'), value: radar.ip || t('common.none') },
+        { label: t('page.developer.mac'), value: radar.mac || t('common.none') },
+        { label: t('page.developer.model'), value: radar.model || t('common.none') },
+        { label: t('page.developer.frameRate'), value: `${radar.frameRateHz?.toFixed?.(1) ?? '0'} Hz` },
+        { label: t('page.developer.targetCount'), value: String(radar.targetCount ?? 0) },
+        {
+          label: t('page.developer.lastPacket'),
+          value: formatLastPacket(radar.lastPacketAt, localeTag, t),
+        },
+      ],
+    },
+    {
+      title: t('page.developer.statusGroup.inference'),
+      items: [
+        {
+          label: t('page.developer.sequenceReady'),
+          value: embedding.ready ? t('page.developer.ready') : t('page.developer.waiting'),
+        },
+        { label: t('page.developer.embedDim'), value: String(embedding.embedDim ?? 0) },
+        { label: t('page.developer.sequenceLength'), value: String(embedding.sequenceLength ?? 0) },
+        {
+          label: t('page.developer.topGesture'),
+          value: topGestureLabel(probs, labels) ?? t('common.none'),
+        },
+        {
+          label: t('page.developer.triggerChannels'),
+          value: String((snap?.channels ?? []).length),
+        },
+      ],
+    },
+  ];
 
   return (
     <section className="view dev-view">
@@ -123,18 +247,9 @@ export default function DevPage({ localeTag = 'en-US', t: providedT }) {
       />
 
       <div className="dev-grid">
-        <article className="panel dev-card">
+        <article className="panel dev-card dev-wide dev-status-card">
           <h2>{t('page.developer.serverRadar')}</h2>
-          <dl className="dev-kv">
-            <div><dt>{t('page.developer.uptime')}</dt><dd>{formatUptime(snap?.serverUptimeSec ?? 0, localeTag)}</dd></div>
-            <div><dt>{t('page.developer.activeSet')}</dt><dd>{snap?.activeSetId ?? t('common.none')}</dd></div>
-            <div><dt>{t('page.developer.connection')}</dt><dd>{snap?.radar?.connected ? t('page.developer.connected') : t('page.developer.disconnected')}</dd></div>
-            <div><dt>{t('page.developer.ip')}</dt><dd>{snap?.radar?.ip || t('common.none')}</dd></div>
-            <div><dt>{t('page.developer.mac')}</dt><dd>{snap?.radar?.mac || t('common.none')}</dd></div>
-            <div><dt>{t('page.developer.model')}</dt><dd>{snap?.radar?.model || t('common.none')}</dd></div>
-            <div><dt>{t('page.developer.frameRate')}</dt><dd>{snap?.radar?.frameRateHz?.toFixed?.(1) ?? '0'} Hz</dd></div>
-            <div><dt>{t('page.developer.targetCount')}</dt><dd>{snap?.radar?.targetCount ?? 0}</dd></div>
-          </dl>
+          <DevKvGrid groups={statusGroups} />
         </article>
 
         <article className="panel dev-card dev-wide">
@@ -153,6 +268,8 @@ export default function DevPage({ localeTag = 'en-US', t: providedT }) {
             <div className="empty-state compact">{t('page.developer.logs.empty')}</div>
           )}
         </article>
+
+        <InferenceProfilePlots profile={snap?.inferenceProfile} t={t} />
 
         <article className="panel dev-card dev-wide">
           <h2>{t('page.developer.probabilities')}</h2>

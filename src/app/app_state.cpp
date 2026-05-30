@@ -256,6 +256,18 @@ void AppState::setServerStartedAt(const std::chrono::steady_clock::time_point t)
 	m_serverStarted = t;
 }
 
+void AppState::setNcnnProfilingEnabled(const bool enabled)
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	m_ncnnProfilingEnabled = enabled;
+}
+
+bool AppState::ncnnProfilingEnabled() const
+{
+	std::lock_guard<std::mutex> lock(m_mutex);
+	return m_ncnnProfilingEnabled;
+}
+
 void AppState::updateRadar(const RadarState& radar)
 {
 	{
@@ -770,12 +782,18 @@ std::string AppState::buildDevJson() const
 	std::deque<DevLogLine> logs;
 	int64_t uptime = 0;
 	std::string active_set;
+	size_t binding_count = 0;
+	uint32_t today_gesture_count = 0;
+	bool ncnn_profiling = false;
 	{
 		std::lock_guard<std::mutex> lock(m_mutex);
 		radar = m_radar;
 		inf = m_inference;
 		gates = m_gateDebug;
 		logs = m_devLogs;
+		binding_count = m_bindings.size();
+		today_gesture_count = m_todayCount;
+		ncnn_profiling = m_ncnnProfilingEnabled;
 		if (m_serverStarted.time_since_epoch().count() != 0)
 		{
 			uptime = std::chrono::duration_cast<std::chrono::seconds>(
@@ -788,6 +806,11 @@ std::string AppState::buildDevJson() const
 	j["type"] = "dev_snapshot";
 	j["serverUptimeSec"] = uptime;
 	j["activeSetId"] = active_set;
+	j["devMeta"] = {
+		{"bindingCount", binding_count},
+		{"ncnnProfiling", ncnn_profiling},
+		{"todayGestureCount", today_gesture_count},
+	};
 	j["radar"] = {
 		{"connected", radar.connected},
 		{"status", radar.status},
@@ -814,6 +837,24 @@ std::string AppState::buildDevJson() const
 		{"sequenceLength", inf.sequenceLength},
 		{"ready", inf.sequenceReady},
 	};
+	if (inf.profiling.enabled)
+	{
+		j["inferenceProfile"] = {
+			{"enabled", true},
+			{"frameEncoder", {
+				{"name", inf.profiling.frameEncoderName},
+				{"samplesMs", inf.profiling.frameEncoderMs},
+			}},
+			{"temporalAggregator", {
+				{"architecture", inf.profiling.temporalAggregatorArchitecture},
+				{"samplesMs", inf.profiling.temporalAggregatorMs},
+			}},
+		};
+	}
+	else
+	{
+		j["inferenceProfile"] = {{"enabled", false}};
+	}
 	j["logs"] = nlohmann::json::array();
 	for (const auto& line : logs)
 	{

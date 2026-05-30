@@ -59,6 +59,9 @@ static ArgParser makeArgParser()
 	parser.addArgument("--config-root")
 		.help("Runtime config directory containing appliances.json and server_state.json")
 		.defaultValue("");
+	parser.addArgument("--ncnn-profile")
+		.help("Enable NCNN inference timing (PointNet per-frame + temporal aggregator)")
+		.actionFlag();
 	return parser;
 }
 
@@ -68,6 +71,7 @@ int main(int argc, char* argv[])
 	std::string site_root_arg;
 	std::string gesture_root_arg;
 	std::string config_root_arg;
+	bool ncnn_profile = false;
 
 	try
 	{
@@ -77,6 +81,7 @@ int main(int argc, char* argv[])
 		site_root_arg = parser.get<std::string>("site-root");
 		gesture_root_arg = parser.get<std::string>("set-root");
 		config_root_arg = parser.get<std::string>("config-root");
+		ncnn_profile = parser.has("ncnn-profile");
 	}
 	catch (const std::exception& ex)
 	{
@@ -100,6 +105,11 @@ int main(int argc, char* argv[])
 	app_state.setConfigRoot(configRoot.string());
 	app_state.setGestureRoot(gestureRoot.string());
 	app_state.setServerStartedAt(std::chrono::steady_clock::now());
+	if (ncnn_profile)
+	{
+		app_state.setNcnnProfilingEnabled(true);
+		LOG_INFO << "wave-server: NCNN inference profiling enabled";
+	}
 	if (!app_state.loadRepository())
 	{
 		LOG_WARN << "Gesture repository not loaded from " << gestureRoot;

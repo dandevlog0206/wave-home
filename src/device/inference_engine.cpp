@@ -10,16 +10,19 @@
 #include <fstream>
 #include <filesystem>
 #include <limits>
+#include <deque>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 
+#include <benchmark.h>
 #include <net.h>
 
 NET_NAMESPACE_BEGIN
 
 namespace
 {
+	constexpr size_t kProfilingHistorySize = 180;
 	constexpr float kPi = 3.14159265358979323846f;
 
 	bool checkStageRole(const std::string& role)
@@ -144,6 +147,37 @@ public:
 	mutable SequenceIdx embeddingMapSequence = SEQUENCE_IDX_BACK;
 	mutable uint32_t embeddingMapLength = 0;
 	mutable bool embeddingMapDirty = true;
+
+	bool profilingEnabled = false;
+	std::deque<float> frameEncoderHistory;
+	std::deque<float> temporalAggregatorHistory;
+
+	void recordFrameEncoderMs(const float ms)
+	{
+		frameEncoderHistory.push_back(ms);
+		while (frameEncoderHistory.size() > kProfilingHistorySize)
+			frameEncoderHistory.pop_front();
+	}
+
+	void recordTemporalAggregatorMs(const float ms)
+	{
+		temporalAggregatorHistory.push_back(ms);
+		while (temporalAggregatorHistory.size() > kProfilingHistorySize)
+			temporalAggregatorHistory.pop_front();
+	}
+
+	InferenceProfilingSnapshot buildProfilingSnapshot() const
+	{
+		InferenceProfilingSnapshot snapshot {};
+		snapshot.frameEncoderName = modelInfo.frameEncoderInfo.name;
+		snapshot.temporalAggregatorArchitecture =
+			modelInfo.temporalAggregatorInfo.networkArchitecture;
+		snapshot.frameEncoderMs.assign(frameEncoderHistory.begin(), frameEncoderHistory.end());
+		snapshot.temporalAggregatorMs.assign(
+			temporalAggregatorHistory.begin(),
+			temporalAggregatorHistory.end());
+		return snapshot;
+	}
 
 	// --- config / models ---
 	void loadJsonConfig(const char* json_path);
@@ -654,6 +688,7 @@ void InferenceEngineImpl::ensureSequenceAggregated(SequenceIdx sequence_index)
 
 void InferenceEngineImpl::runFrameEncoder(Frame& frame)
 {
+	const double profile_start = profilingEnabled ? ncnn::get_current_time() : 0.0;
 	const int point_count = static_cast<int>(frame.points.size());
 	const uint32_t embed_size = modelInfo.frameEncoderInfo.outputSize;
 
@@ -696,10 +731,14 @@ void InferenceEngineImpl::runFrameEncoder(Frame& frame)
 
 	extractFlat(output, embed_size, frame.embedding);
 	frame.encoderDone = true;
+
+	if (profilingEnabled)
+		recordFrameEncoderMs(static_cast<float>(ncnn::get_current_time() - profile_start));
 }
 
 void InferenceEngineImpl::runTemporalAggregator(Sequence& sequence)
 {
+	const double profile_start = profilingEnabled ? ncnn::get_current_time() : 0.0;
 	const auto& agg_info = modelInfo.temporalAggregatorInfo;
 	const uint32_t embed_size = modelInfo.frameEncoderInfo.outputSize;
 	const int seq_len = static_cast<int>(sequence.frameIndices.size());
@@ -730,6 +769,9 @@ void InferenceEngineImpl::runTemporalAggregator(Sequence& sequence)
 	extractFlat(output, agg_info.outputSize, sequence.probabilities);
 	apply_softmax(sequence.probabilities);
 	sequence.aggregatorDone = true;
+
+	if (profilingEnabled)
+		recordTemporalAggregatorMs(static_cast<float>(ncnn::get_current_time() - profile_start));
 }
 
 void InferenceEngineImpl::runPostProcessor(Sequence& sequence)
@@ -1026,10 +1068,30 @@ const std::vector<float>& InferenceEngine::getSequenceEmbeddingMap(
 	return m_impl->embeddingMap;
 }
 
+void InferenceEngine::setProfilingEnabled(const bool enabled)
+{
+	if (m_impl)
+		m_impl->profilingEnabled = enabled;
+}
+
+bool InferenceEngine::profilingEnabled() const
+{
+	return m_impl && m_impl->profilingEnabled;
+}
+
+InferenceProfilingSnapshot InferenceEngine::profilingSnapshot() const
+{
+	if (!m_impl || !m_impl->profilingEnabled)
+		return {};
+	return m_impl->buildProfilingSnapshot();
+}
+
 void InferenceEngine::clear()
 {
 	if (!m_impl)
 		return;
+	m_impl->frameEncoderHistory.clear();
+	m_impl->temporalAggregatorHistory.clear();
 	m_impl->frameQueue.clear();
 	m_impl->frameMap.clear();
 	m_impl->sequenceMap.clear();

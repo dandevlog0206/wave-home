@@ -127,6 +127,7 @@ void SensorPipeline::start(const std::string& gesture_set_root)
 		std::lock_guard<std::mutex> lock(m_impl->inference_mutex);
 		m_impl->inference.load(m_impl->catalog.activeSet().modelJsonPath.c_str());
 		m_impl->probabilityGate.configure(m_impl->catalog.activeSet(), {});
+		m_impl->inference.setProfilingEnabled(AppState::instance().ncnnProfilingEnabled());
 	}
 	catch (const std::exception& ex)
 	{
@@ -194,6 +195,7 @@ bool SensorPipeline::reloadActiveSet(const std::string& set_id)
 		{
 			std::lock_guard<std::mutex> inference_lock(m_impl->inference_mutex);
 			m_impl->inference.load(m_impl->catalog.activeSet().modelJsonPath.c_str());
+			m_impl->inference.setProfilingEnabled(AppState::instance().ncnnProfilingEnabled());
 			m_impl->applyPendingBindingOverridesLocked();
 		}
 		LOG_INFO << "sensor_pipeline: reloaded model for " << set_id;
@@ -264,22 +266,39 @@ void SensorPipeline::Impl::publishInferenceResult()
 {
 	InferenceSnapshot snap {};
 	std::vector<wave::GestureGateDebug> gates;
+	const bool profiling_enabled = AppState::instance().ncnnProfilingEnabled();
 	{
 		std::lock_guard<std::mutex> lock(inference_mutex);
-		if (!inference.hasSequence(net::SEQUENCE_IDX_BACK))
+		if (!inference.isLoaded())
 			return;
 
-		const auto probs = inference.getSequenceProbabilities(net::SEQUENCE_IDX_BACK);
-		const auto embed_map = inference.getSequenceEmbeddingMap(net::SEQUENCE_IDX_BACK);
-		const auto model = inference.getModelInfo();
+		const bool has_sequence = inference.hasSequence(net::SEQUENCE_IDX_BACK);
+		if (has_sequence)
+		{
+			const auto probs = inference.getSequenceProbabilities(net::SEQUENCE_IDX_BACK);
+			const auto embed_map = inference.getSequenceEmbeddingMap(net::SEQUENCE_IDX_BACK);
+			const auto model = inference.getModelInfo();
 
-		snap.probabilities = probs;
-		snap.embeddingMap = embed_map;
-		snap.embedDim = model.frameEncoderInfo.outputSize;
-		snap.sequenceLength = model.sequenceLength;
-		snap.sequenceReady = true;
+			snap.probabilities = probs;
+			snap.embeddingMap = embed_map;
+			snap.embedDim = model.frameEncoderInfo.outputSize;
+			snap.sequenceLength = model.sequenceLength;
+			snap.sequenceReady = true;
+			gates = probabilityGate.debugSnapshot();
+		}
 
-		gates = probabilityGate.debugSnapshot();
+		if (profiling_enabled)
+		{
+			const auto profile = inference.profilingSnapshot();
+			snap.profiling.enabled = true;
+			snap.profiling.frameEncoderName = profile.frameEncoderName;
+			snap.profiling.temporalAggregatorArchitecture = profile.temporalAggregatorArchitecture;
+			snap.profiling.frameEncoderMs = profile.frameEncoderMs;
+			snap.profiling.temporalAggregatorMs = profile.temporalAggregatorMs;
+		}
+
+		if (!has_sequence && !profiling_enabled)
+			return;
 	}
 
 	for (auto& gate : gates)
@@ -440,11 +459,11 @@ void SensorPipeline::Impl::inferenceLoop()
 					applyPendingBindingOverridesLocked();
 				inference.enqueueFrame(std::move(points), net::FRAME_IDX_BACK);
 
-				if (!inference.hasSequence(net::SEQUENCE_IDX_BACK))
-					continue;
-
-				const auto probs = inference.getSequenceProbabilities(net::SEQUENCE_IDX_BACK);
-				events = probabilityGate.update(probs);
+				if (inference.hasSequence(net::SEQUENCE_IDX_BACK))
+				{
+					const auto probs = inference.getSequenceProbabilities(net::SEQUENCE_IDX_BACK);
+					events = probabilityGate.update(probs);
+				}
 			}
 			publishInferenceResult();
 

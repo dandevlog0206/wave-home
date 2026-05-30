@@ -1,0 +1,50 @@
+{
+    "version": "1.0",
+    "model_name": "GestureNetV5.0",
+    "model_version": "5.0",
+    "sequence_length": 48,
+    "normalization": {
+        "coordinate_mode": "cartesian",
+        "power_mode": "db",
+        "ranges": {
+            "x": [-1.0, 1.0],
+            "y": [0.0, 3.0],
+            "z": [-1.0, 1.0],
+            "doppler": [-4.0, 4.0],
+            "power": [30.0, 55.0]
+        }
+    },
+    "pipeline": [
+        {
+            "name": "PointNetV1",
+            "type": "pointnet",
+            "role": "frame_encoder",
+            "param": "pointnet.param",
+            "bin": "pointnet.bin",
+            "input_name": "in0",
+            "output_name": "out0",
+            "output_size": 256,
+            "use_cache": true
+        },
+        {
+            "name": "CNNV5",
+            "type": "cnn",
+            "role": "temporal_aggregator",
+            "param": "cnn.param",
+            "bin": "cnn.bin",
+            "input_name": "in0",
+            "output_name": "out0",
+            "output_size": 13
+        }
+    ],
+    "dataset": {
+        "name": "set4",
+        "validation_split": 5,
+        "learning_rate": 0.001,
+        "batch_size": 16,
+        "accumulation_steps": 2,
+        "num_epochs": 7,
+        "training_accuracy": 0.99,
+        "validation_accuracy": 0.98
+    }
+}

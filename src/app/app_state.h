@@ -58,6 +58,15 @@ struct RadarState
 	uint32_t reconnectCountdownSec = 0;
 };
 
+struct InferenceProfilingView
+{
+	bool enabled = false;
+	std::string frameEncoderName;
+	std::string temporalAggregatorArchitecture;
+	std::vector<float> frameEncoderMs;
+	std::vector<float> temporalAggregatorMs;
+};
+
 struct InferenceSnapshot
 {
 	std::vector<float> probabilities;
@@ -65,6 +74,7 @@ struct InferenceSnapshot
 	uint32_t embedDim = 0;
 	uint32_t sequenceLength = 0;
 	bool sequenceReady = false;
+	InferenceProfilingView profiling;
 };
 
 class AppState
@@ -79,6 +89,8 @@ public:
 	bool loadRepository();
 
 	void setServerStartedAt(std::chrono::steady_clock::time_point t);
+	void setNcnnProfilingEnabled(bool enabled);
+	bool ncnnProfilingEnabled() const;
 
 	void updateRadar(const RadarState& radar);
 	void updateInference(const InferenceSnapshot& inference, const std::vector<wave::GestureGateDebug>& gates);
@@ -152,6 +164,7 @@ private:
 	mutable std::mutex m_mutex;
 	std::string m_configRoot;
 	std::string m_gestureRoot;
+	bool m_ncnnProfilingEnabled = false;
 	GestureRepository m_gestures;
 
 	RadarState m_radar;
