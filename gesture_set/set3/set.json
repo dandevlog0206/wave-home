@@ -21,18 +21,18 @@
     "13": "양손 낮춰 오른쪽 넘기기"
   },
   "gestures": [
-    { "gestureClassId": 1, "name": "오른손 수평 흔들기", "media": { "preview": "media/gestures/01/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
-    { "gestureClassId": 2, "name": "정면 양손 원 그리기", "media": { "preview": "media/gestures/02/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
-    { "gestureClassId": 3, "name": "양손 앞으로 올려 젓기", "media": { "preview": "media/gestures/03/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
-    { "gestureClassId": 4, "name": "양손 옆으로 올려 젓기", "media": { "preview": "media/gestures/04/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
-    { "gestureClassId": 5, "name": "양손 옆으로 내려 젓기", "media": { "preview": "media/gestures/05/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
-    { "gestureClassId": 6, "name": "양손 높여 왼쪽 넘기기", "media": { "preview": "media/gestures/06/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
-    { "gestureClassId": 7, "name": "양손 높여 오른쪽 넘기기", "media": { "preview": "media/gestures/07/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
-    { "gestureClassId": 8, "name": "양손 높여 앞으로 내리기", "media": { "preview": "media/gestures/08/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
-    { "gestureClassId": 9, "name": "왼손 옆으로 흔들기", "media": { "preview": "media/gestures/09/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
-    { "gestureClassId": 10, "name": "오른손 옆으로 흔들기", "media": { "preview": "media/gestures/10/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
-    { "gestureClassId": 11, "name": "왼손 올려 원 그리기", "media": { "preview": "media/gestures/11/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
-    { "gestureClassId": 12, "name": "양손 낮춰 왼쪽 넘기기", "media": { "preview": "media/gestures/12/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
-    { "gestureClassId": 13, "name": "양손 낮춰 오른쪽 넘기기", "media": { "preview": "media/gestures/13/preview.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } }
+    { "gestureClassId": 1, "name": "오른손 수평 흔들기", "media": { "preview": "media/gestures/01/2-1.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
+    { "gestureClassId": 2, "name": "정면 양손 원 그리기", "media": { "preview": "media/gestures/02/2-2.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
+    { "gestureClassId": 3, "name": "양손 앞으로 올려 젓기", "media": { "preview": "media/gestures/03/2-3.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
+    { "gestureClassId": 4, "name": "양손 옆으로 올려 젓기", "media": { "preview": "media/gestures/04/2-4.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
+    { "gestureClassId": 5, "name": "양손 옆으로 내려 젓기", "media": { "preview": "media/gestures/05/2-5.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
+    { "gestureClassId": 6, "name": "양손 높여 왼쪽 넘기기", "media": { "preview": "media/gestures/06/2-6.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
+    { "gestureClassId": 7, "name": "양손 높여 오른쪽 넘기기", "media": { "preview": "media/gestures/07/2-7.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
+    { "gestureClassId": 8, "name": "양손 높여 앞으로 내리기", "media": { "preview": "media/gestures/08/2-8.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
+    { "gestureClassId": 9, "name": "왼손 옆으로 흔들기", "media": { "preview": "media/gestures/09/0-1.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
+    { "gestureClassId": 10, "name": "오른손 옆으로 흔들기", "media": { "preview": "media/gestures/10/0-2.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
+    { "gestureClassId": 11, "name": "왼손 올려 원 그리기", "media": { "preview": "media/gestures/11/0-3.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
+    { "gestureClassId": 12, "name": "양손 낮춰 왼쪽 넘기기", "media": { "preview": "media/gestures/12/0-4.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } },
+    { "gestureClassId": 13, "name": "양손 낮춰 오른쪽 넘기기", "media": { "preview": "media/gestures/13/0-5.png" }, "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 } }
   ]
 }

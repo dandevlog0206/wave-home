@@ -16,7 +16,7 @@
     {
       "gestureClassId": 1,
       "name": "만세 후 왼쪽으로 스윙",
-      "media": { "preview": "media/gestures/01/preview.png" },
+      "media": { "preview": "media/gestures/01/0-1.png" },
       "trigger": {
         "highThreshold": 0.55,
         "lowThreshold": 0.35,
@@ -28,7 +28,7 @@
     {
       "gestureClassId": 2,
       "name": "만세 후 오른쪽으로 스윙",
-      "media": { "preview": "media/gestures/02/preview.png" },
+      "media": { "preview": "media/gestures/02/0-2.png" },
       "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800,
         "minHighHoldMs": 120,
         "minLowHoldMs": 120 }
@@ -36,7 +36,7 @@
     {
       "gestureClassId": 3,
       "name": "만세 후 앞으로 숙이기",
-      "media": { "preview": "media/gestures/03/preview.png" },
+      "media": { "preview": "media/gestures/03/0-3.png" },
       "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800,
         "minHighHoldMs": 120,
         "minLowHoldMs": 120 }
@@ -44,7 +44,7 @@
     {
       "gestureClassId": 4,
       "name": "왼팔을 옆으로 뻗고 날갯짓",
-      "media": { "preview": "media/gestures/04/preview.png" },
+      "media": { "preview": "media/gestures/04/0-4.png" },
       "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800,
         "minHighHoldMs": 120,
         "minLowHoldMs": 120 }
@@ -52,7 +52,7 @@
     {
       "gestureClassId": 5,
       "name": "오른팔을 옆으로 뻗고 날갯짓",
-      "media": { "preview": "media/gestures/05/preview.png" },
+      "media": { "preview": "media/gestures/05/0-5.png" },
       "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800,
         "minHighHoldMs": 120,
         "minLowHoldMs": 120 }

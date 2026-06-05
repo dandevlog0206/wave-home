@@ -19,49 +19,49 @@
     {
       "gestureClassId": 1,
       "name": "오른팔로 부채질",
-      "media": { "preview": "media/gestures/01/preview.png" },
+      "media": { "preview": "media/gestures/01/2-1.png" },
       "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
     },
     {
       "gestureClassId": 2,
       "name": "몸 앞에서 팔 빙글빙글",
-      "media": { "preview": "media/gestures/02/preview.png" },
+      "media": { "preview": "media/gestures/02/2-2.png" },
       "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
     },
     {
       "gestureClassId": 3,
       "name": "양팔 앞으로 뻗고 위로 스윙",
-      "media": { "preview": "media/gestures/03/preview.png" },
+      "media": { "preview": "media/gestures/03/2-3.png" },
       "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
     },
     {
       "gestureClassId": 4,
       "name": "양팔 옆으로 뻗고 위로 날갯짓",
-      "media": { "preview": "media/gestures/04/preview.png" },
+      "media": { "preview": "media/gestures/04/2-4.png" },
       "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
     },
     {
       "gestureClassId": 5,
       "name": "양팔 옆으로 뻗고 아래로 날갯짓",
-      "media": { "preview": "media/gestures/05/preview.png" },
+      "media": { "preview": "media/gestures/05/2-5.png" },
       "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
     },
     {
       "gestureClassId": 6,
       "name": "왼팔을 들고 팔 돌리기",
-      "media": { "preview": "media/gestures/06/preview.png" },
+      "media": { "preview": "media/gestures/06/2-6.png" },
       "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
     },
     {
       "gestureClassId": 7,
       "name": "양팔을 내리고 왼쪽으로 스윙",
-      "media": { "preview": "media/gestures/07/preview.png" },
+      "media": { "preview": "media/gestures/07/2-7.png" },
       "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
     },
     {
       "gestureClassId": 8,
       "name": "양팔을 내리고 오른쪽으로 스윙",
-      "media": { "preview": "media/gestures/08/preview.png" },
+      "media": { "preview": "media/gestures/08/2-8.png" },
       "trigger": { "highThreshold": 0.55, "lowThreshold": 0.35, "cooldownMs": 800, "minHighHoldMs": 120, "minLowHoldMs": 120 }
     }
   ]

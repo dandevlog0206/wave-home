@@ -1,6 +1,15 @@
 {
-  "activeSetId": "set4",
-  "bindings": [],
+  "activeSetId": "set6",
+  "bindings": [
+    {
+      "controlId": "channel_down",
+      "controlLabel": "이전 채널",
+      "deviceId": "samsung-monitor",
+      "gestureClassId": 5,
+      "repeatIntervalMs": 600,
+      "triggerMode": "pulse"
+    }
+  ],
   "settings": {},
   "version": 1
 }
