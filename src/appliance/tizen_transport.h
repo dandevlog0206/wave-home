@@ -1,9 +1,11 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 
 #include <nlohmann/json.hpp>
 
@@ -32,6 +34,8 @@ private:
 	struct Session;
 
 	bool ensureSessionLocked(std::string* error);
+	bool sessionStaleLocked() const;
+	void touchSessionLocked();
 	bool trySendRemotePayloadLocked(const std::string& payload, std::string* error);
 	bool sendRemotePayload(const std::string& payload, std::string* error);
 	bool waitForSessionReady(std::string* error);
@@ -45,6 +49,11 @@ private:
 	bool wakeOnLan();
 
 	void setErrorLocked(const std::string& error);
+	void startKeepalive();
+	void stopKeepalive();
+	void keepaliveLoop();
+	void performKeepaliveLocked(std::string* error);
+	bool drainInboundWsFramesLocked(std::string* error);
 
 	std::string m_endpoint;
 	nlohmann::json m_options;
@@ -52,6 +61,8 @@ private:
 	std::unique_ptr<Session> m_session;
 	TransportConnectionState m_state = TransportConnectionState::Disconnected;
 	std::string m_lastError;
+	std::thread m_keepalive_thread;
+	std::atomic<bool> m_keepalive_stop {false};
 };
 
 APPLIANCE_NAMESPACE_END

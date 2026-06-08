@@ -63,29 +63,46 @@ ServerStateDocument ServerStateStore::load() const
 	if (root.contains("settings") && root.at("settings").is_object())
 		document.settings = root.at("settings");
 
-	if (root.contains("bindings") && root.at("bindings").is_array())
-	{
-		for (const auto& item : root.at("bindings"))
-		{
-			if (!item.is_object())
-				continue;
+	auto parse_binding_array =
+		[](const nlohmann::json& arr) -> std::vector<StoredBindingEntry> {
+			std::vector<StoredBindingEntry> entries;
+			if (!arr.is_array())
+				return entries;
+			for (const auto& item : arr)
+			{
+				if (!item.is_object())
+					continue;
 
-			StoredBindingEntry entry;
-			if (item.contains("deviceId") && item.at("deviceId").is_string())
-				entry.deviceId = item.at("deviceId").get<std::string>();
-			if (item.contains("controlId") && item.at("controlId").is_string())
-				entry.controlId = item.at("controlId").get<std::string>();
-			if (item.contains("controlLabel") && item.at("controlLabel").is_string())
-				entry.controlLabel = item.at("controlLabel").get<std::string>();
-			if (item.contains("gestureClassId") && item.at("gestureClassId").is_number_unsigned())
-				entry.gestureClassId = item.at("gestureClassId").get<uint32_t>();
-			entry.triggerMode = gestureTriggerModeFromString(
-				item.value("triggerMode", "pulse"));
-			entry.repeatIntervalMs = std::max<uint32_t>(
-				100u,
-				item.value("repeatIntervalMs", 600u));
-			document.bindings.push_back(std::move(entry));
-		}
+				StoredBindingEntry entry;
+				if (item.contains("deviceId") && item.at("deviceId").is_string())
+					entry.deviceId = item.at("deviceId").get<std::string>();
+				if (item.contains("controlId") && item.at("controlId").is_string())
+					entry.controlId = item.at("controlId").get<std::string>();
+				if (item.contains("controlLabel") && item.at("controlLabel").is_string())
+					entry.controlLabel = item.at("controlLabel").get<std::string>();
+				if (item.contains("gestureClassId") && item.at("gestureClassId").is_number_unsigned())
+					entry.gestureClassId = item.at("gestureClassId").get<uint32_t>();
+				entry.triggerMode = gestureTriggerModeFromString(
+					item.value("triggerMode", "pulse"));
+				entry.repeatIntervalMs = std::max<uint32_t>(
+					100u,
+					item.value("repeatIntervalMs", 600u));
+				entries.push_back(std::move(entry));
+			}
+			return entries;
+		};
+
+	if (root.contains("bindingsBySet") && root.at("bindingsBySet").is_object())
+	{
+		for (const auto& [set_id, bindings_json] : root.at("bindingsBySet").items())
+			document.bindings_by_set[set_id] = parse_binding_array(bindings_json);
+	}
+	else if (root.contains("bindings") && root.at("bindings").is_array())
+	{
+		const std::string legacy_set_id = document.activeSetId.empty()
+			? "default"
+			: document.activeSetId;
+		document.bindings_by_set[legacy_set_id] = parse_binding_array(root.at("bindings"));
 	}
 
 	return document;
@@ -93,17 +110,22 @@ ServerStateDocument ServerStateStore::load() const
 
 void ServerStateStore::save(const ServerStateDocument& document) const
 {
-	nlohmann::json bindings = nlohmann::json::array();
-	for (const auto& entry : document.bindings)
+	nlohmann::json bindings_by_set = nlohmann::json::object();
+	for (const auto& [set_id, bindings] : document.bindings_by_set)
 	{
-		bindings.push_back({
-			{"deviceId", entry.deviceId},
-			{"controlId", entry.controlId},
-			{"controlLabel", entry.controlLabel},
-			{"gestureClassId", entry.gestureClassId},
-			{"triggerMode", std::string(gestureTriggerModeName(entry.triggerMode))},
-			{"repeatIntervalMs", entry.repeatIntervalMs},
-		});
+		nlohmann::json arr = nlohmann::json::array();
+		for (const auto& entry : bindings)
+		{
+			arr.push_back({
+				{"deviceId", entry.deviceId},
+				{"controlId", entry.controlId},
+				{"controlLabel", entry.controlLabel},
+				{"gestureClassId", entry.gestureClassId},
+				{"triggerMode", std::string(gestureTriggerModeName(entry.triggerMode))},
+				{"repeatIntervalMs", entry.repeatIntervalMs},
+			});
+		}
+		bindings_by_set[set_id] = std::move(arr);
 	}
 
 	writeJsonFile(
@@ -112,7 +134,7 @@ void ServerStateStore::save(const ServerStateDocument& document) const
 			{"version", 1},
 			{"activeSetId", document.activeSetId},
 			{"settings", document.settings.is_object() ? document.settings : nlohmann::json::object()},
-			{"bindings", bindings},
+			{"bindingsBySet", bindings_by_set},
 		});
 }
 

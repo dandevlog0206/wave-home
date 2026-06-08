@@ -91,8 +91,8 @@ function ThresholdBar({ score, high, low, state }) {
         className="threshold-zone mid"
         style={{ left: `${lowPct}%`, width: `${Math.max(0, highPct - lowPct)}%` }}
       />
-      <div className="threshold-marker high" style={{ left: `${highPct}%` }} title={`High ${high.toFixed(2)}`} />
-      <div className="threshold-marker low" style={{ left: `${lowPct}%` }} title={`Low ${low.toFixed(2)}`} />
+      <div className="threshold-marker high" style={{ left: `${highPct}%` }} title={`High ${high.toFixed(3)}`} />
+      <div className="threshold-marker low" style={{ left: `${lowPct}%` }} title={`Low ${low.toFixed(3)}`} />
       <div className={`threshold-fill ${state}`} style={{ width: `${pct}%` }} />
     </div>
   );
@@ -332,8 +332,8 @@ export default function DevPage({ localeTag = 'en-US', t: providedT }) {
                 <dl className="dev-kv compact">
                   <div><dt>{t('page.developer.channelState')}</dt><dd>{ch.state}</dd></div>
                   <div><dt>{t('page.developer.channelScore')}</dt><dd>{ch.score?.toFixed(3)}</dd></div>
-                  <div><dt>{t('page.developer.channelHigh')}</dt><dd>{ch.highThreshold}</dd></div>
-                  <div><dt>{t('page.developer.channelLow')}</dt><dd>{ch.lowThreshold}</dd></div>
+                  <div><dt>{t('page.developer.channelHigh')}</dt><dd>{ch.highThreshold?.toFixed(3)}</dd></div>
+                  <div><dt>{t('page.developer.channelLow')}</dt><dd>{ch.lowThreshold?.toFixed(3)}</dd></div>
                   <div><dt>{t('page.developer.channelCooldown')}</dt><dd>{ch.cooldownMs} ms</dd></div>
                   <div><dt>{t('page.developer.channelMinHigh')}</dt><dd>{ch.minHighHoldMs} ms</dd></div>
                   <div><dt>{t('page.developer.channelMinLow')}</dt><dd>{ch.minLowHoldMs} ms</dd></div>

@@ -3,6 +3,7 @@ build-debug/
 build_pi5/
 bin/
 bin-debug/
+backup/
 cmake-build-*/
 .cache/
 *.user

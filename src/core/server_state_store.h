@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -26,7 +27,7 @@ struct StoredBindingEntry
 struct ServerStateDocument
 {
 	std::string activeSetId;
-	std::vector<StoredBindingEntry> bindings;
+	std::unordered_map<std::string, std::vector<StoredBindingEntry>> bindings_by_set;
 	nlohmann::json settings = nlohmann::json::object();
 };
 

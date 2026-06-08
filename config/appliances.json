@@ -19,7 +19,11 @@
           "powerState": true,
           "securePort": 8002,
           "apiPort": 8001,
-          "timeoutMs": 1500
+          "timeoutMs": 3000,
+          "socketTimeoutMs": 500,
+          "sessionMaxIdleMs": 5000,
+          "sessionKeepalive": true,
+          "sessionKeepaliveIntervalMs": 1000
         }
       },
       "metadata": {
@@ -40,7 +44,7 @@
           ]
         },
         {
-          "id": "power-off",
+          "id": "power-off", 
           "label": "전원 끄기",
           "kind": "power",
           "triggerMode": "pulse",

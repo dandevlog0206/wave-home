@@ -294,6 +294,14 @@ namespace
 				definition.transport.options["apiPort"] = 8001;
 			if (!definition.transport.options.contains("timeoutMs"))
 				definition.transport.options["timeoutMs"] = 1500;
+			if (!definition.transport.options.contains("socketTimeoutMs"))
+				definition.transport.options["socketTimeoutMs"] = 500;
+			if (!definition.transport.options.contains("sessionMaxIdleMs"))
+				definition.transport.options["sessionMaxIdleMs"] = 5000;
+			if (!definition.transport.options.contains("sessionKeepalive"))
+				definition.transport.options["sessionKeepalive"] = true;
+			if (!definition.transport.options.contains("sessionKeepaliveIntervalMs"))
+				definition.transport.options["sessionKeepaliveIntervalMs"] = 3000;
 		}
 		if (definition.kind == appliance::ApplianceKind::Tuya)
 		{

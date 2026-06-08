@@ -156,8 +156,13 @@ private:
 	std::string serverStatePathLocked() const;
 	bool persistServerState(std::string* error = nullptr) const;
 	void schedulePersistServerState() const;
-	bool pruneInvalidBindingsLocked(std::vector<std::string>* warnings = nullptr);
-	bool bindingSupportedLocked(const BindingEntry& binding) const;
+	bool pruneAllBindingsLocked(std::vector<std::string>* warnings = nullptr);
+	bool pruneBindingsForSetLocked(
+		const std::string& set_id,
+		std::vector<std::string>* warnings = nullptr);
+	bool bindingSupportedLocked(const std::string& set_id, const BindingEntry& binding) const;
+	std::vector<BindingEntry>& activeBindingsLocked();
+	const std::vector<BindingEntry>& activeBindingsLocked() const;
 	std::unordered_map<uint32_t, GestureTriggerConfig> bindingTriggerOverridesLocked() const;
 	void syncSensorTriggerBindings(const std::unordered_map<uint32_t, GestureTriggerConfig>& overrides);
 	void dispatchBindingActions(
@@ -187,7 +192,7 @@ private:
 	uint32_t m_todayCount = 0;
 	std::string m_todayKey;
 
-	std::vector<BindingEntry> m_bindings;
+	std::unordered_map<std::string, std::vector<BindingEntry>> m_bindings_by_set;
 	nlohmann::json m_serverSettings = nlohmann::json::object();
 
 	struct DevLogLine

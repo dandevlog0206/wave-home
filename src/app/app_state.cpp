@@ -69,7 +69,7 @@ bool AppState::loadAppliancesConfig(std::string* error)
 		bool bindings_pruned = false;
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
-			bindings_pruned = pruneInvalidBindingsLocked(&warnings);
+			bindings_pruned = pruneAllBindingsLocked(&warnings);
 		}
 		for (const auto& warning : warnings)
 			LOG_WARN << warning;
@@ -126,24 +126,28 @@ bool AppState::loadServerState(std::string* error)
 				}
 			}
 
-			m_bindings.clear();
-			m_bindings.reserve(document.bindings.size());
-			for (const auto& stored : document.bindings)
+			m_bindings_by_set.clear();
+			for (const auto& [set_id, stored_bindings] : document.bindings_by_set)
 			{
-				BindingEntry binding;
-				binding.deviceId = stored.deviceId;
-				binding.controlId = stored.controlId;
-				binding.controlLabel = stored.controlLabel;
-				binding.gestureClassId = stored.gestureClassId;
-				binding.gestureName = m_gestures.gestureName(
-					m_gestures.activeSetId(),
-					stored.gestureClassId);
-				binding.triggerMode = stored.triggerMode;
-				binding.repeatIntervalMs = stored.repeatIntervalMs;
-				m_bindings.push_back(std::move(binding));
+				auto& bindings = m_bindings_by_set[set_id];
+				bindings.reserve(stored_bindings.size());
+				for (const auto& stored : stored_bindings)
+				{
+					BindingEntry binding;
+					binding.deviceId = stored.deviceId;
+					binding.controlId = stored.controlId;
+					binding.controlLabel = stored.controlLabel;
+					binding.gestureClassId = stored.gestureClassId;
+					binding.gestureName = m_gestures.gestureName(
+						set_id,
+						stored.gestureClassId);
+					binding.triggerMode = stored.triggerMode;
+					binding.repeatIntervalMs = stored.repeatIntervalMs;
+					bindings.push_back(std::move(binding));
+				}
 			}
 
-			normalized = pruneInvalidBindingsLocked(&warnings) || normalized;
+			normalized = pruneAllBindingsLocked(&warnings) || normalized;
 		}
 
 		for (const auto& warning : warnings)
@@ -189,7 +193,6 @@ bool AppState::setActiveGestureSet(
 	bool should_reload_pipeline = false;
 	bool pruned = false;
 	std::string previous_active_set;
-	std::vector<BindingEntry> previous_bindings;
 	std::unordered_map<uint32_t, GestureTriggerConfig> previous_overrides;
 	std::unordered_map<uint32_t, GestureTriggerConfig> next_overrides;
 
@@ -206,12 +209,11 @@ bool AppState::setActiveGestureSet(
 		{
 			should_reload_pipeline = m_sensorPipeline.isRunning();
 			previous_active_set = m_gestures.activeSetId();
-			previous_bindings = m_bindings;
 			previous_overrides = bindingTriggerOverridesLocked();
 			m_gestures.setActiveSetId(set_id);
 		}
 
-		pruned = pruneInvalidBindingsLocked();
+		pruned = pruneBindingsForSetLocked(set_id);
 		next_overrides = bindingTriggerOverridesLocked();
 	}
 
@@ -220,7 +222,6 @@ bool AppState::setActiveGestureSet(
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
 			m_gestures.setActiveSetId(previous_active_set);
-			m_bindings = std::move(previous_bindings);
 		}
 		syncSensorTriggerBindings(previous_overrides);
 		if (error)
@@ -343,7 +344,7 @@ void AppState::recordGestureTrigger(const uint32_t gesture_class_id, const float
 		std::lock_guard<std::mutex> lock(m_mutex);
 		active_set = m_gestures.activeSetId();
 		gesture_name = m_gestures.gestureName(active_set, gesture_class_id);
-		for (const auto& b : m_bindings)
+		for (const auto& b : activeBindingsLocked())
 		{
 			if (b.gestureClassId == gesture_class_id)
 				matched.push_back(b);
@@ -396,7 +397,7 @@ void AppState::dispatchBindingActions(
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
 			bool still_bound = false;
-			for (const auto& current : m_bindings)
+			for (const auto& current : activeBindingsLocked())
 			{
 				if (current.gestureClassId == gesture_class_id &&
 					current.deviceId == b.deviceId &&
@@ -483,10 +484,26 @@ std::vector<HistoryEvent> AppState::historySince(
 	return out;
 }
 
+std::vector<BindingEntry>& AppState::activeBindingsLocked()
+{
+	return m_bindings_by_set[m_gestures.activeSetId()];
+}
+
+const std::vector<BindingEntry>& AppState::activeBindingsLocked() const
+{
+	const auto it = m_bindings_by_set.find(m_gestures.activeSetId());
+	if (it == m_bindings_by_set.end())
+	{
+		static const std::vector<BindingEntry> kEmpty;
+		return kEmpty;
+	}
+	return it->second;
+}
+
 std::vector<BindingEntry> AppState::bindings() const
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
-	return m_bindings;
+	return activeBindingsLocked();
 }
 
 bool AppState::setBinding(
@@ -500,28 +517,29 @@ bool AppState::setBinding(
 	std::unordered_map<uint32_t, GestureTriggerConfig> overrides;
 	{
 		std::lock_guard<std::mutex> lock(m_mutex);
+		auto& bindings = activeBindingsLocked();
 
 		if (gesture_class_id.has_value())
 		{
-			m_bindings.erase(
+			bindings.erase(
 				std::remove_if(
-					m_bindings.begin(),
-					m_bindings.end(),
+					bindings.begin(),
+					bindings.end(),
 					[&](const BindingEntry& b) {
 						return b.gestureClassId == *gesture_class_id &&
 							(b.deviceId != device_id || b.controlId != control_id);
 					}),
-				m_bindings.end());
+				bindings.end());
 		}
 
-		m_bindings.erase(
+		bindings.erase(
 			std::remove_if(
-				m_bindings.begin(),
-				m_bindings.end(),
+				bindings.begin(),
+				bindings.end(),
 				[&](const BindingEntry& b) {
 					return b.deviceId == device_id && b.controlId == control_id;
 				}),
-			m_bindings.end());
+			bindings.end());
 
 		if (gesture_class_id.has_value())
 		{
@@ -534,7 +552,7 @@ bool AppState::setBinding(
 				m_gestures.gestureName(m_gestures.activeSetId(), *gesture_class_id);
 			entry.triggerMode = trigger_mode;
 			entry.repeatIntervalMs = std::max<uint32_t>(100, repeat_interval_ms);
-			m_bindings.push_back(entry);
+			bindings.push_back(entry);
 		}
 		overrides = bindingTriggerOverridesLocked();
 	}
@@ -548,12 +566,13 @@ void AppState::clearBindingsForDevice(const std::string& device_id)
 	std::unordered_map<uint32_t, GestureTriggerConfig> overrides;
 	{
 		std::lock_guard<std::mutex> lock(m_mutex);
-		m_bindings.erase(
+		auto& bindings = activeBindingsLocked();
+		bindings.erase(
 			std::remove_if(
-				m_bindings.begin(),
-				m_bindings.end(),
+				bindings.begin(),
+				bindings.end(),
 				[&](const BindingEntry& b) { return b.deviceId == device_id; }),
-			m_bindings.end());
+			bindings.end());
 		overrides = bindingTriggerOverridesLocked();
 	}
 	syncSensorTriggerBindings(overrides);
@@ -564,7 +583,7 @@ void AppState::clearAllBindings()
 {
 	{
 		std::lock_guard<std::mutex> lock(m_mutex);
-		m_bindings.clear();
+		activeBindingsLocked().clear();
 	}
 	syncSensorTriggerBindings({});
 	schedulePersistServerState();
@@ -633,16 +652,21 @@ bool AppState::persistServerState(std::string* error) const
 		path = serverStatePathLocked();
 		document.activeSetId = m_gestures.activeSetId();
 		document.settings = m_serverSettings;
-		for (const auto& binding : m_bindings)
+		for (const auto& [set_id, bindings] : m_bindings_by_set)
 		{
-			core::StoredBindingEntry stored;
-			stored.deviceId = binding.deviceId;
-			stored.controlId = binding.controlId;
-			stored.controlLabel = binding.controlLabel;
-			stored.gestureClassId = binding.gestureClassId;
-			stored.triggerMode = binding.triggerMode;
-			stored.repeatIntervalMs = binding.repeatIntervalMs;
-			document.bindings.push_back(std::move(stored));
+			auto& stored_bindings = document.bindings_by_set[set_id];
+			stored_bindings.reserve(bindings.size());
+			for (const auto& binding : bindings)
+			{
+				core::StoredBindingEntry stored;
+				stored.deviceId = binding.deviceId;
+				stored.controlId = binding.controlId;
+				stored.controlLabel = binding.controlLabel;
+				stored.gestureClassId = binding.gestureClassId;
+				stored.triggerMode = binding.triggerMode;
+				stored.repeatIntervalMs = binding.repeatIntervalMs;
+				stored_bindings.push_back(std::move(stored));
+			}
 		}
 	}
 
@@ -659,16 +683,18 @@ bool AppState::persistServerState(std::string* error) const
 	}
 }
 
-bool AppState::bindingSupportedLocked(const BindingEntry& binding) const
+bool AppState::bindingSupportedLocked(
+	const std::string& set_id,
+	const BindingEntry& binding) const
 {
 	if (binding.deviceId.empty() || binding.controlId.empty())
 		return false;
 
-	const auto* active_set = m_gestures.findSet(m_gestures.activeSetId());
-	if (!active_set)
+	const auto* gesture_set = m_gestures.findSet(set_id);
+	if (!gesture_set)
 		return false;
-	if (active_set->triggersByClassId.find(binding.gestureClassId) ==
-		active_set->triggersByClassId.end())
+	if (gesture_set->triggersByClassId.find(binding.gestureClassId) ==
+		gesture_set->triggersByClassId.end())
 	{
 		return false;
 	}
@@ -677,24 +703,27 @@ bool AppState::bindingSupportedLocked(const BindingEntry& binding) const
 	return m_applianceManager.hasInput(binding.deviceId, binding.controlId);
 }
 
-bool AppState::pruneInvalidBindingsLocked(std::vector<std::string>* warnings)
+bool AppState::pruneBindingsForSetLocked(
+	const std::string& set_id,
+	std::vector<std::string>* warnings)
 {
+	auto& bindings = m_bindings_by_set[set_id];
 	std::vector<BindingEntry> filtered;
-	filtered.reserve(m_bindings.size());
+	filtered.reserve(bindings.size());
 	std::unordered_set<std::string> control_keys;
 	std::unordered_set<uint32_t> gesture_ids;
 	bool changed = false;
 
-	for (auto binding : m_bindings)
+	for (auto binding : bindings)
 	{
-		if (!bindingSupportedLocked(binding))
+		if (!bindingSupportedLocked(set_id, binding))
 		{
 			changed = true;
 			if (warnings)
 			{
 				warnings->push_back(
-					"server_state: dropped invalid binding '" + binding.deviceId + "/" +
-					binding.controlId + "'");
+					"server_state: dropped invalid binding [" + set_id + "] '" +
+					binding.deviceId + "/" + binding.controlId + "'");
 			}
 			continue;
 		}
@@ -706,8 +735,8 @@ bool AppState::pruneInvalidBindingsLocked(std::vector<std::string>* warnings)
 			if (warnings)
 			{
 				warnings->push_back(
-					"server_state: dropped duplicate control binding '" + binding.deviceId +
-					"/" + binding.controlId + "'");
+					"server_state: dropped duplicate control binding [" + set_id + "] '" +
+					binding.deviceId + "/" + binding.controlId + "'");
 			}
 			continue;
 		}
@@ -718,14 +747,14 @@ bool AppState::pruneInvalidBindingsLocked(std::vector<std::string>* warnings)
 			if (warnings)
 			{
 				warnings->push_back(
-					"server_state: dropped duplicate gesture binding '" +
+					"server_state: dropped duplicate gesture binding [" + set_id + "] '" +
 					std::to_string(binding.gestureClassId) + "'");
 			}
 			continue;
 		}
 
 		const std::string gesture_name = m_gestures.gestureName(
-			m_gestures.activeSetId(),
+			set_id,
 			binding.gestureClassId);
 		if (binding.gestureName != gesture_name)
 		{
@@ -745,7 +774,19 @@ bool AppState::pruneInvalidBindingsLocked(std::vector<std::string>* warnings)
 	}
 
 	if (changed)
-		m_bindings = std::move(filtered);
+		bindings = std::move(filtered);
+	return changed;
+}
+
+bool AppState::pruneAllBindingsLocked(std::vector<std::string>* warnings)
+{
+	bool changed = false;
+	std::vector<std::string> set_ids;
+	set_ids.reserve(m_bindings_by_set.size());
+	for (const auto& [set_id, _] : m_bindings_by_set)
+		set_ids.push_back(set_id);
+	for (const auto& set_id : set_ids)
+		changed = pruneBindingsForSetLocked(set_id, warnings) || changed;
 	return changed;
 }
 
@@ -753,7 +794,7 @@ std::unordered_map<uint32_t, GestureTriggerConfig> AppState::bindingTriggerOverr
 {
 	std::unordered_map<uint32_t, GestureTriggerConfig> overrides;
 	const auto* active_set = m_gestures.findSet(m_gestures.activeSetId());
-	for (const auto& binding : m_bindings)
+	for (const auto& binding : activeBindingsLocked())
 	{
 		GestureTriggerConfig config {};
 		if (active_set)
@@ -836,7 +877,7 @@ std::string AppState::buildDevJson() const
 		inf = m_inference;
 		gates = m_gateDebug;
 		logs = m_devLogs;
-		binding_count = m_bindings.size();
+		binding_count = activeBindingsLocked().size();
 		today_gesture_count = m_todayCount;
 		ncnn_profiling = m_ncnnProfilingEnabled;
 		if (m_serverStarted.time_since_epoch().count() != 0)
