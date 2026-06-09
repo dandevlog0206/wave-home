@@ -17,10 +17,8 @@
 #include <vector>
 
 #include <asio.hpp>
-#include <fcntl.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -162,16 +160,6 @@ namespace
 		return options.at(key).get<int>();
 	}
 
-	[[nodiscard]] bool getBoolOption(
-		const nlohmann::json& options,
-		const char* key,
-		const bool fallback)
-	{
-		if (!options.contains(key) || !options.at(key).is_boolean())
-			return fallback;
-		return options.at(key).get<bool>();
-	}
-
 	[[nodiscard]] TizenEndpoint parseEndpoint(
 		const std::string& endpoint,
 		const nlohmann::json& options)
@@ -215,23 +203,6 @@ namespace
 		}
 
 		return parsed;
-	}
-
-	void tuneSocketForWss(const int fd, const int io_timeout_ms)
-	{
-		if (fd < 0)
-			return;
-
-		const int timeout_ms = std::max(200, io_timeout_ms);
-		timeval tv {};
-		tv.tv_sec = timeout_ms / 1000;
-		tv.tv_usec = (timeout_ms % 1000) * 1000;
-		::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-		::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-#ifdef TCP_USER_TIMEOUT
-		const int user_timeout = timeout_ms;
-		::setsockopt(fd, IPPROTO_TCP, TCP_USER_TIMEOUT, &user_timeout, sizeof(user_timeout));
-#endif
 	}
 
 	[[nodiscard]] bool asioConnect(
@@ -513,21 +484,14 @@ namespace
 			raw.size()));
 	}
 
-	struct WsFrame
-	{
-		unsigned char opcode = 0;
-		std::string payload;
-	};
-
-	[[nodiscard]] bool sendWsMaskedFrame(
+	[[nodiscard]] bool sendWsTextFrame(
 		SSL* ssl,
-		const unsigned char opcode,
 		const std::string& payload,
 		std::string* error)
 	{
 		std::vector<unsigned char> frame;
 		frame.reserve(payload.size() + 16);
-		frame.push_back(static_cast<unsigned char>(0x80 | opcode));
+		frame.push_back(0x81);
 
 		if (payload.size() > 125)
 		{
@@ -558,20 +522,9 @@ namespace
 			error);
 	}
 
-	[[nodiscard]] bool sendWsTextFrame(
+	[[nodiscard]] std::optional<std::string> readWsTextFrame(
 		SSL* ssl,
-		const std::string& payload,
 		std::string* error)
-	{
-		return sendWsMaskedFrame(ssl, 0x1, payload, error);
-	}
-
-	[[nodiscard]] bool sendWsPingFrame(SSL* ssl, std::string* error)
-	{
-		return sendWsMaskedFrame(ssl, 0x9, std::string {}, error);
-	}
-
-	[[nodiscard]] std::optional<WsFrame> readWsFrame(SSL* ssl, std::string* error)
 	{
 		unsigned char header[2] {};
 		const int header_rc = ::SSL_read(ssl, header, sizeof(header));
@@ -642,37 +595,16 @@ namespace
 				payload[i] = static_cast<char>(payload[i] ^ mask[i % mask.size()]);
 		}
 
-		return WsFrame {opcode, std::move(payload)};
-	}
-
-	[[nodiscard]] std::optional<std::string> readWsTextFrame(
-		SSL* ssl,
-		std::string* error)
-	{
-		const auto frame = readWsFrame(ssl, error);
-		if (!frame)
-			return std::nullopt;
-		if (frame->opcode == 0x1)
-			return frame->payload;
-		if (frame->opcode == 0x8)
+		if (opcode == 0x1)
+			return payload;
+		if (opcode == 0x8)
 		{
 			if (error)
 				*error = "tizen websocket closed";
 			return std::nullopt;
 		}
+
 		return std::string {};
-	}
-
-	[[nodiscard]] bool hasInboundWsData(SSL* ssl, const int fd)
-	{
-		if (ssl != nullptr && SSL_pending(ssl) > 0)
-			return true;
-		if (fd < 0)
-			return false;
-
-		char peek_byte = 0;
-		const ssize_t peeked = ::recv(fd, &peek_byte, 1, MSG_PEEK | MSG_DONTWAIT);
-		return peeked > 0;
 	}
 
 	[[nodiscard]] std::optional<TizenSession> openTizenSession(
@@ -698,10 +630,6 @@ namespace
 				connect_timeout,
 				error))
 			return std::nullopt;
-
-		tuneSocketForWss(
-			static_cast<int>(session.socket->native_handle()),
-			std::max(200, getIntOption(options, "socketTimeoutMs", 500)));
 
 		::SSL_load_error_strings();
 		::OPENSSL_init_ssl(0, nullptr);
@@ -974,66 +902,24 @@ namespace
 struct TizenCommandTransport::Session
 {
 	TizenSession transport;
-	std::chrono::steady_clock::time_point last_used {};
 };
 
 TizenCommandTransport::TizenCommandTransport(std::string endpoint, nlohmann::json options) :
 	m_endpoint(std::move(endpoint)),
 	m_options(std::move(options))
 {
-	if (getBoolOption(m_options, "sessionKeepalive", true))
-		startKeepalive();
 }
 
 TizenCommandTransport::~TizenCommandTransport()
 {
-	stopKeepalive();
 	std::lock_guard<std::mutex> lock(m_mutex);
 	closeSessionLocked();
 }
 
-bool TizenCommandTransport::sessionStaleLocked() const
-{
-	if (!m_session || !m_session->transport.ssl || !m_session->transport.socket)
-		return true;
-
-	const int max_idle_ms = std::max(1000, getIntOption(m_options, "sessionMaxIdleMs", 5000));
-	if (m_session->last_used.time_since_epoch().count() != 0)
-	{
-		const auto idle = std::chrono::steady_clock::now() - m_session->last_used;
-		if (idle > std::chrono::milliseconds(max_idle_ms))
-			return true;
-	}
-
-	SSL* ssl = m_session->transport.ssl.get();
-	if (SSL_pending(ssl) > 0)
-		return true;
-
-	const int fd = static_cast<int>(m_session->transport.socket->native_handle());
-	if (fd < 0)
-		return true;
-
-	char peek_byte = 0;
-	const ssize_t peeked = ::recv(fd, &peek_byte, 1, MSG_PEEK | MSG_DONTWAIT);
-	if (peeked == 0)
-		return true;
-	if (peeked < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
-		return true;
-	return false;
-}
-
-void TizenCommandTransport::touchSessionLocked()
-{
-	if (m_session)
-		m_session->last_used = std::chrono::steady_clock::now();
-}
-
 bool TizenCommandTransport::ensureSessionLocked(std::string* error)
 {
-	if (m_session && m_session->transport.ssl && !sessionStaleLocked())
+	if (m_session && m_session->transport.ssl)
 		return true;
-
-	closeSessionLocked();
 
 	std::string learned_token;
 	const TizenEndpoint endpoint = parseEndpoint(m_endpoint, m_options);
@@ -1046,7 +932,6 @@ bool TizenCommandTransport::ensureSessionLocked(std::string* error)
 
 	auto persistent = std::make_unique<Session>();
 	persistent->transport = std::move(*session);
-	persistent->last_used = std::chrono::steady_clock::now();
 	m_session = std::move(persistent);
 	return true;
 }
@@ -1057,18 +942,18 @@ bool TizenCommandTransport::trySendRemotePayloadLocked(
 {
 	if (!ensureSessionLocked(error))
 		return false;
-	if (!sendWsTextFrame(m_session->transport.ssl.get(), payload, error))
-		return false;
-	touchSessionLocked();
-	return true;
+	return sendWsTextFrame(m_session->transport.ssl.get(), payload, error);
 }
 
 bool TizenCommandTransport::sendRemotePayload(const std::string& payload, std::string* error)
 {
 	std::string last_error;
-	const int max_attempts = std::max(2, getIntOption(m_options, "commandMaxAttempts", 3));
+	const int retry_window_ms = std::max(1000, getIntOption(m_options, "commandRetryWindowMs", 5000));
+	const int retry_delay_ms = std::max(100, getIntOption(m_options, "commandRetryDelayMs", 350));
+	const auto deadline = std::chrono::steady_clock::now() +
+		std::chrono::milliseconds(retry_window_ms);
 
-	for (int attempt = 0; attempt < max_attempts; ++attempt)
+	while (true)
 	{
 		{
 			std::lock_guard<std::mutex> lock(m_mutex);
@@ -1076,6 +961,10 @@ bool TizenCommandTransport::sendRemotePayload(const std::string& payload, std::s
 				return true;
 			closeSessionLocked();
 		}
+
+		if (std::chrono::steady_clock::now() >= deadline)
+			break;
+		std::this_thread::sleep_for(std::chrono::milliseconds(retry_delay_ms));
 	}
 
 	if (error)
@@ -1116,97 +1005,6 @@ void TizenCommandTransport::closeSessionLocked()
 	m_session.reset();
 }
 
-void TizenCommandTransport::startKeepalive()
-{
-	if (m_keepalive_thread.joinable())
-		return;
-
-	m_keepalive_stop.store(false);
-	m_keepalive_thread = std::thread(&TizenCommandTransport::keepaliveLoop, this);
-}
-
-void TizenCommandTransport::stopKeepalive()
-{
-	m_keepalive_stop.store(true);
-	if (m_keepalive_thread.joinable())
-		m_keepalive_thread.join();
-}
-
-void TizenCommandTransport::keepaliveLoop()
-{
-	const int interval_ms =
-		std::max(2000, getIntOption(m_options, "sessionKeepaliveIntervalMs", 3000));
-
-	while (!m_keepalive_stop.load())
-	{
-		{
-			std::lock_guard<std::mutex> lock(m_mutex);
-			std::string error;
-			performKeepaliveLocked(&error);
-		}
-
-		for (int elapsed = 0; elapsed < interval_ms && !m_keepalive_stop.load(); elapsed += 200)
-			std::this_thread::sleep_for(std::chrono::milliseconds(200));
-	}
-}
-
-bool TizenCommandTransport::drainInboundWsFramesLocked(std::string* error)
-{
-	if (!m_session || !m_session->transport.ssl || !m_session->transport.socket)
-		return false;
-
-	SSL* ssl = m_session->transport.ssl.get();
-	const int fd = static_cast<int>(m_session->transport.socket->native_handle());
-	while (hasInboundWsData(ssl, fd))
-	{
-		const auto frame = readWsFrame(ssl, error);
-		if (!frame)
-			return false;
-		if (frame->opcode == 0x8)
-		{
-			if (error)
-				*error = "tizen websocket closed";
-			return false;
-		}
-	}
-
-	return true;
-}
-
-void TizenCommandTransport::performKeepaliveLocked(std::string* error)
-{
-	if (m_session && m_session->transport.ssl && !sessionStaleLocked())
-	{
-		if (!drainInboundWsFramesLocked(error))
-		{
-			closeSessionLocked();
-		}
-		else if (sendWsPingFrame(m_session->transport.ssl.get(), error))
-		{
-			touchSessionLocked();
-			m_state = TransportConnectionState::Connected;
-			m_lastError.clear();
-			return;
-		}
-		else
-		{
-			closeSessionLocked();
-		}
-	}
-
-	m_state = TransportConnectionState::Connecting;
-	if (ensureSessionLocked(error))
-	{
-		m_state = TransportConnectionState::Connected;
-		m_lastError.clear();
-		return;
-	}
-
-	if (error && !error->empty())
-		setErrorLocked(*error);
-	m_state = TransportConnectionState::Disconnected;
-}
-
 bool TizenCommandTransport::publish(const std::string& channel, const std::string& payload)
 {
 	{
@@ -1245,13 +1043,26 @@ bool TizenCommandTransport::publish(const std::string& channel, const std::strin
 
 void TizenCommandTransport::primeConnection()
 {
-	if (getBoolOption(m_options, "sessionKeepalive", true))
-		startKeepalive();
-
 	std::lock_guard<std::mutex> lock(m_mutex);
+	if (m_session && m_session->transport.ssl)
+	{
+		m_state = TransportConnectionState::Connected;
+		return;
+	}
+
 	m_lastError.clear();
+	m_state = TransportConnectionState::Connecting;
 	std::string error;
-	performKeepaliveLocked(&error);
+	if (ensureSessionLocked(&error))
+	{
+		m_state = TransportConnectionState::Connected;
+		return;
+	}
+
+	if (!error.empty())
+		setErrorLocked(error);
+	else
+		m_state = TransportConnectionState::Disconnected;
 }
 
 TransportConnectionState TizenCommandTransport::connectionState() const
@@ -1278,9 +1089,6 @@ nlohmann::json TizenCommandTransport::debugJson() const
 		{"apiPort", endpoint.api_port},
 		{"name", getStringOption(m_options, "name")},
 		{"sessionOpen", static_cast<bool>(m_session)},
-		{"sessionKeepalive", getBoolOption(m_options, "sessionKeepalive", true)},
-		{"sessionKeepaliveIntervalMs",
-			getIntOption(m_options, "sessionKeepaliveIntervalMs", 3000)},
 		{"tokenPresent", m_options.contains("token") && m_options.at("token").is_string() &&
 			!m_options.at("token").get<std::string>().empty()},
 		{"lastError", m_lastError},
