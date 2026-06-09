@@ -303,6 +303,10 @@ namespace
 				definition.transport.options["apiPort"] = 8001;
 			if (!definition.transport.options.contains("timeoutMs"))
 				definition.transport.options["timeoutMs"] = 1500;
+			if (!definition.transport.options.contains("sessionWatch"))
+				definition.transport.options["sessionWatch"] = true;
+			if (!definition.transport.options.contains("sessionWatchIntervalMs"))
+				definition.transport.options["sessionWatchIntervalMs"] = 8000;
 			if (definition.transport.options.contains("token") &&
 				definition.transport.options.at("token").is_string())
 			{
