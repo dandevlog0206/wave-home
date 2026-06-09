@@ -294,10 +294,9 @@ function App() {
     setLogoClicks(next);
     if (logoTimer.current) clearTimeout(logoTimer.current);
     logoTimer.current = setTimeout(() => setLogoClicks(0), 2000);
-    if (next >= 10) {
+    if (next >= 5) {
       setLogoClicks(0);
       setDevUnlocked(true);
-      setActiveView('developer');
     }
   };
 

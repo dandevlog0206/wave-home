@@ -185,6 +185,172 @@ void AppState::stopSensorPipeline()
 	m_sensorPipeline.stop();
 }
 
+void AppState::enqueueIoTJobOnQueue(
+	std::condition_variable& cv,
+	std::deque<IoTJob>& jobs,
+	IoTJob job)
+{
+	if (job.gesture_class_id != UINT32_MAX)
+	{
+		const uint32_t gesture_id = job.gesture_class_id;
+		jobs.erase(
+			std::remove_if(
+				jobs.begin(),
+				jobs.end(),
+				[gesture_id](const IoTJob& existing) {
+					return existing.gesture_class_id == gesture_id;
+				}),
+			jobs.end());
+	}
+	else if (!job.device_id.empty() && !job.input_id.empty())
+	{
+		jobs.erase(
+			std::remove_if(
+				jobs.begin(),
+				jobs.end(),
+				[&job](const IoTJob& existing) {
+					return existing.gesture_class_id == UINT32_MAX &&
+						existing.device_id == job.device_id &&
+						existing.input_id == job.input_id;
+				}),
+			jobs.end());
+	}
+
+	while (jobs.size() >= 32)
+		jobs.pop_front();
+
+	const bool priority =
+		job.gesture_class_id == UINT32_MAX && !job.device_id.empty();
+	if (priority)
+		jobs.push_front(std::move(job));
+	else
+		jobs.push_back(std::move(job));
+
+	cv.notify_one();
+}
+
+void AppState::runIoTWorkerLoop(
+	std::mutex& mutex,
+	std::condition_variable& cv,
+	std::deque<IoTJob>& jobs)
+{
+	while (!m_iot_stop.load())
+	{
+		IoTJob job;
+		{
+			std::unique_lock<std::mutex> lock(mutex);
+			cv.wait(lock, [this, &jobs] {
+				return m_iot_stop.load() || !jobs.empty();
+			});
+			if (m_iot_stop.load() && jobs.empty())
+				break;
+			job = std::move(jobs.front());
+			jobs.pop_front();
+		}
+
+		if (!job.run)
+			continue;
+
+		try
+		{
+			job.run();
+		}
+		catch (const std::exception& ex)
+		{
+			appendDevLog("error", std::string("IoT worker exception: ") + ex.what());
+		}
+		catch (...)
+		{
+			appendDevLog("error", "IoT worker unknown exception");
+		}
+	}
+}
+
+void AppState::startIoTWorker()
+{
+	if (m_iot_fast_worker.joinable() || m_iot_slow_worker.joinable())
+		return;
+
+	m_iot_stop.store(false);
+	m_iot_fast_worker = std::thread([this] { iotFastWorkerLoop(); });
+	m_iot_slow_worker = std::thread([this] { iotSlowWorkerLoop(); });
+}
+
+void AppState::stopIoTWorker()
+{
+	m_iot_stop.store(true);
+	m_iot_fast_cv.notify_all();
+	m_iot_slow_cv.notify_all();
+	if (m_iot_fast_worker.joinable())
+		m_iot_fast_worker.join();
+	if (m_iot_slow_worker.joinable())
+		m_iot_slow_worker.join();
+
+	{
+		std::lock_guard<std::mutex> lock(m_iot_fast_mutex);
+		m_iot_fast_jobs.clear();
+	}
+	{
+		std::lock_guard<std::mutex> lock(m_iot_slow_mutex);
+		m_iot_slow_jobs.clear();
+	}
+}
+
+void AppState::enqueueFastIoTJob(IoTJob job)
+{
+	startIoTWorker();
+	{
+		std::lock_guard<std::mutex> lock(m_iot_fast_mutex);
+		enqueueIoTJobOnQueue(m_iot_fast_cv, m_iot_fast_jobs, std::move(job));
+	}
+}
+
+void AppState::enqueueSlowIoTJob(IoTJob job)
+{
+	startIoTWorker();
+	{
+		std::lock_guard<std::mutex> lock(m_iot_slow_mutex);
+		enqueueIoTJobOnQueue(m_iot_slow_cv, m_iot_slow_jobs, std::move(job));
+	}
+}
+
+void AppState::iotFastWorkerLoop()
+{
+	runIoTWorkerLoop(m_iot_fast_mutex, m_iot_fast_cv, m_iot_fast_jobs);
+}
+
+void AppState::iotSlowWorkerLoop()
+{
+	runIoTWorkerLoop(m_iot_slow_mutex, m_iot_slow_cv, m_iot_slow_jobs);
+}
+
+void AppState::enqueueDeviceControl(
+	const std::string& device_id,
+	const std::string& input_id,
+	const std::optional<appliance::InputTriggerMode> trigger_mode_override)
+{
+	IoTJob job {
+		.device_id = device_id,
+		.input_id = input_id,
+		.run = [this, device_id, input_id, trigger_mode_override]() {
+			std::string error;
+			const bool ok = m_applianceManager.executeInput(
+				device_id,
+				input_id,
+				trigger_mode_override,
+				&error);
+			appendDevLog(
+				ok ? "info" : "warn",
+				(ok ? "제어 · " : "제어 실패 · ") + device_id + " / " + input_id +
+					(error.empty() ? "" : " — " + error));
+		},
+	};
+	if (m_applianceManager.isTizenAppliance(device_id))
+		enqueueSlowIoTJob(std::move(job));
+	else
+		enqueueFastIoTJob(std::move(job));
+}
+
 bool AppState::setActiveGestureSet(
 	const std::string& set_id,
 	bool* bindings_pruned,
@@ -367,21 +533,60 @@ void AppState::recordGestureTrigger(const uint32_t gesture_class_id, const float
 		return;
 	}
 
-	std::thread(
-		[self = this,
-		 bindings = std::move(matched),
-		 gesture_class_id,
-		 score,
-		 gesture_name = std::move(gesture_name),
-		 active_set = std::move(active_set)]() mutable {
-			self->dispatchBindingActions(
-				std::move(bindings),
-				gesture_class_id,
-				score,
-				std::move(gesture_name),
-				std::move(active_set));
-		})
-		.detach();
+	std::vector<BindingEntry> fast_bindings;
+	std::vector<BindingEntry> slow_bindings;
+	fast_bindings.reserve(matched.size());
+	slow_bindings.reserve(matched.size());
+	for (auto& binding : matched)
+	{
+		if (m_applianceManager.isTizenAppliance(binding.deviceId))
+			slow_bindings.push_back(std::move(binding));
+		else
+			fast_bindings.push_back(std::move(binding));
+	}
+
+	const auto enqueue_gesture_jobs =
+		[this,
+			gesture_class_id,
+			score,
+			gesture_name = std::move(gesture_name),
+			active_set = std::move(active_set)](
+			std::vector<BindingEntry> bindings,
+			const std::function<void(IoTJob)>& enqueue) {
+			if (bindings.empty())
+				return;
+
+			const bool coalesce_repeat = std::any_of(
+				bindings.begin(),
+				bindings.end(),
+				[](const BindingEntry& binding) {
+					return binding.triggerMode == GestureTriggerMode::Repeat;
+				});
+
+			enqueue(IoTJob {
+				.gesture_class_id = coalesce_repeat ? gesture_class_id : UINT32_MAX,
+				.run = [this,
+					bindings = std::move(bindings),
+					gesture_class_id,
+					score,
+					gesture_name,
+					active_set]() mutable {
+					dispatchBindingActions(
+						std::move(bindings),
+						gesture_class_id,
+						score,
+						std::move(gesture_name),
+						std::move(active_set));
+				},
+			});
+		};
+
+	enqueue_gesture_jobs(
+		std::move(fast_bindings),
+		[this](IoTJob job) { enqueueFastIoTJob(std::move(job)); });
+	enqueue_gesture_jobs(
+		std::move(slow_bindings),
+		[this](IoTJob job) { enqueueSlowIoTJob(std::move(job)); });
 }
 
 void AppState::dispatchBindingActions(

@@ -66,10 +66,6 @@ namespace
 			{std::string(key::kLogRadarDisconnectedRetry), "레이더 연결 끊김 · 15초 후 재시도"},
 			{std::string(key::kLogIotControlSucceeded), "IoT 제어 · {deviceName} / {control}"},
 			{std::string(key::kLogIotControlFailed), "IoT 제어 실패 · {deviceName} / {control}"},
-			{std::string(key::kLogHomebridgeInitialLoaded), "초기 Homebridge 설정 로드 완료"},
-			{std::string(key::kLogHomebridgeLoadFailed), "Homebridge 로드 실패: {reason}"},
-			{std::string(key::kLogHomebridgeReloaded), "Homebridge 설정 변경 · 장치 목록 갱신"},
-			{std::string(key::kLogHomebridgeReloadFailed), "Homebridge 갱신 실패: {reason}"},
 		};
 
 		static const Dictionary kEnUs = {
@@ -123,10 +119,6 @@ namespace
 			{std::string(key::kLogRadarDisconnectedRetry), "Radar disconnected · retrying in 15s"},
 			{std::string(key::kLogIotControlSucceeded), "IoT control · {deviceName} / {control}"},
 			{std::string(key::kLogIotControlFailed), "IoT control failed · {deviceName} / {control}"},
-			{std::string(key::kLogHomebridgeInitialLoaded), "Initial Homebridge config loaded"},
-			{std::string(key::kLogHomebridgeLoadFailed), "Homebridge load failed: {reason}"},
-			{std::string(key::kLogHomebridgeReloaded), "Homebridge config changed · devices reloaded"},
-			{std::string(key::kLogHomebridgeReloadFailed), "Homebridge reload failed: {reason}"},
 		};
 
 		return resolveTag(locale_tag) == "ko-KR" ? kKoKr : kEnUs;

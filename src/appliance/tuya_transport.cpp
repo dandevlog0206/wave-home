@@ -92,60 +92,57 @@ bool TuyaCommandTransport::runClient(
 	const std::function<bool(TuyaLanClient&, std::string*)>& action,
 	std::string* error)
 {
+	std::lock_guard<std::mutex> command_lock(m_command_mutex);
 	TuyaLanClient client(m_config);
 	return action(client, error);
 }
 
-bool TuyaCommandTransport::sendQueryCommand()
+bool TuyaCommandTransport::sendQueryCommand(std::string* error)
 {
 	std::string decoded;
-	std::string error;
 	const bool ok = runClient(
 		[&](TuyaLanClient& client, std::string* client_error) {
 			return client.queryStatus(&decoded, client_error);
 		},
-		&error);
-	if (!ok)
-		setErrorLocked(error);
-	else
+		error);
+	if (ok)
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
 		m_lastStatusJson = std::move(decoded);
+	}
 	return ok;
 }
 
-bool TuyaCommandTransport::sendPowerCommand(const std::string& payload)
+bool TuyaCommandTransport::sendPowerCommand(
+	const std::string& payload,
+	std::string* error)
 {
 	const std::string command = upperCopy(trimCopy(payload));
 	if (command.empty())
 	{
-		setErrorLocked("missing power command");
+		if (error)
+			*error = "missing power command";
 		return false;
 	}
 
-	std::string error;
 	if (command == "ON")
 	{
-		const bool ok = runClient(
+		return runClient(
 			[&](TuyaLanClient& client, std::string* client_error) {
 				std::string decoded;
 				return client.setSwitch(true, &decoded, client_error);
 			},
-			&error);
-		if (!ok)
-			setErrorLocked(error);
-		return ok;
+			error);
 	}
 
 	if (command == "OFF")
 	{
-		const bool ok = runClient(
+		return runClient(
 			[&](TuyaLanClient& client, std::string* client_error) {
 				std::string decoded;
 				return client.setSwitch(false, &decoded, client_error);
 			},
-			&error);
-		if (!ok)
-			setErrorLocked(error);
-		return ok;
+			error);
 	}
 
 	if (command == "TOGGLE")
@@ -155,40 +152,37 @@ bool TuyaCommandTransport::sendPowerCommand(const std::string& payload)
 				[&](TuyaLanClient& client, std::string* client_error) {
 					return client.queryStatus(&status_json, client_error);
 				},
-				&error))
-		{
-			setErrorLocked(error);
+				error))
 			return false;
-		}
 
 		const auto current = tuya_protocol::parseSwitchDp(status_json, m_config.switchDp);
 		if (!current.has_value())
 		{
-			setErrorLocked("failed to read current switch state");
+			if (error)
+				*error = "failed to read current switch state";
 			return false;
 		}
 
-		const bool ok = runClient(
+		return runClient(
 			[&](TuyaLanClient& client, std::string* client_error) {
 				std::string decoded;
 				return client.setSwitch(!*current, &decoded, client_error);
 			},
-			&error);
-		if (!ok)
-			setErrorLocked(error);
-		return ok;
+			error);
 	}
 
-	setErrorLocked("unsupported power command: " + command);
+	if (error)
+		*error = "unsupported power command: " + command;
 	return false;
 }
 
-bool TuyaCommandTransport::sendDpsCommand(const std::string& payload)
+bool TuyaCommandTransport::sendDpsCommand(const std::string& payload, std::string* error)
 {
 	const std::string trimmed = trimCopy(payload);
 	if (trimmed.empty())
 	{
-		setErrorLocked("missing dps payload");
+		if (error)
+			*error = "missing dps payload";
 		return false;
 	}
 
@@ -202,80 +196,77 @@ bool TuyaCommandTransport::sendDpsCommand(const std::string& payload)
 			dps = parsed;
 		else
 		{
-			setErrorLocked("dps payload must be a JSON object");
+			if (error)
+				*error = "dps payload must be a JSON object";
 			return false;
 		}
 
-		std::string error;
-		const bool ok = runClient(
+		return runClient(
 			[&](TuyaLanClient& client, std::string* client_error) {
 				std::string decoded;
 				return client.setDps(dps, &decoded, client_error);
 			},
-			&error);
-		if (!ok)
-			setErrorLocked(error);
-		return ok;
+			error);
 	}
 	catch (const std::exception& ex)
 	{
-		setErrorLocked(std::string("invalid dps json: ") + ex.what());
+		if (error)
+			*error = std::string("invalid dps json: ") + ex.what();
 		return false;
 	}
 }
 
 bool TuyaCommandTransport::publish(const std::string& channel, const std::string& payload)
 {
-	std::lock_guard<std::mutex> lock(m_mutex);
-	m_lastError.clear();
-	m_state = TransportConnectionState::Connecting;
-
+	std::string error;
 	bool ok = false;
 	if (channel == "power")
-		ok = sendPowerCommand(payload);
+		ok = sendPowerCommand(payload, &error);
 	else if (channel == "dps")
-		ok = sendDpsCommand(payload);
+		ok = sendDpsCommand(payload, &error);
 	else if (channel == "query")
-		ok = sendQueryCommand();
+		ok = sendQueryCommand(&error);
 	else
-		setErrorLocked("unsupported tuya command channel: " + channel);
+		error = "unsupported tuya command channel: " + channel;
 
+	std::lock_guard<std::mutex> lock(m_mutex);
 	if (ok)
 	{
 		m_state = TransportConnectionState::Connected;
 		m_lastError.clear();
 	}
-	else if (m_state != TransportConnectionState::Error)
-		m_state = TransportConnectionState::Disconnected;
+	else
+	{
+		setErrorLocked(error.empty() ? "tuya command failed" : error);
+		if (m_state != TransportConnectionState::Error)
+			m_state = TransportConnectionState::Disconnected;
+	}
 	return ok;
 }
 
 void TuyaCommandTransport::primeConnection()
 {
+	std::string decoded;
+	std::string error;
+	const bool ok = runClient(
+		[&](TuyaLanClient& client, std::string* client_error) {
+			return client.queryStatus(&decoded, client_error);
+		},
+		&error);
+
 	std::lock_guard<std::mutex> lock(m_mutex);
 	m_lastError.clear();
-	m_state = TransportConnectionState::Connecting;
-
-	std::string decoded;
-	const bool ok = [&]() {
-		TuyaLanClient client(m_config);
-		std::string error;
-		if (!client.queryStatus(&decoded, &error))
-		{
-			setErrorLocked(error);
-			return false;
-		}
-		return true;
-	}();
-
 	if (ok)
 	{
 		m_lastStatusJson = std::move(decoded);
 		m_state = TransportConnectionState::Connected;
-		m_lastError.clear();
 	}
-	else if (m_state != TransportConnectionState::Error)
-		m_state = TransportConnectionState::Disconnected;
+	else
+	{
+		setErrorLocked(error);
+		if (m_state != TransportConnectionState::Error)
+			m_state = TransportConnectionState::Disconnected;
+	}
 }
 
 TransportConnectionState TuyaCommandTransport::connectionState() const

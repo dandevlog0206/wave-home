@@ -90,16 +90,54 @@ bool Appliance::executeInput(
 	const std::optional<InputTriggerMode> trigger_mode_override,
 	std::string* error)
 {
-	std::lock_guard<std::mutex> lock(m_mutex);
-	for (auto& input : m_definition.inputs)
+	std::vector<ApplianceCommand> commands;
+	InputTriggerMode mode = InputTriggerMode::Pulse;
+	bool toggle_next_state = false;
+	bool is_toggle = false;
+
 	{
-		if (input.id == input_id)
-			return executeInputInternal(input, trigger_mode_override, error);
+		std::lock_guard<std::mutex> lock(m_mutex);
+		for (const auto& input : m_definition.inputs)
+		{
+			if (input.id != input_id)
+				continue;
+
+			mode = trigger_mode_override.value_or(input.triggerMode);
+			if (mode == InputTriggerMode::Toggle)
+			{
+				is_toggle = true;
+				toggle_next_state = !m_toggleStates[input.id];
+				const auto& selected = toggle_next_state && !input.onCommands.empty()
+					? input.onCommands
+					: (!toggle_next_state && !input.offCommands.empty()
+						? input.offCommands
+						: input.triggerCommands);
+				commands = selected;
+			}
+			else if (!input.triggerCommands.empty())
+				commands = input.triggerCommands;
+			else if (!input.onCommands.empty())
+				commands = input.onCommands;
+			else
+				commands = input.offCommands;
+			break;
+		}
 	}
 
-	if (error)
-		*error = "input not found";
-	return false;
+	if (commands.empty())
+	{
+		if (error)
+			*error = "input not found";
+		return false;
+	}
+
+	const bool ok = publishCommands(commands, error);
+	if (ok && is_toggle)
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		m_toggleStates[input_id] = toggle_next_state;
+	}
+	return ok;
 }
 
 bool Appliance::hasInput(const std::string& input_id) const

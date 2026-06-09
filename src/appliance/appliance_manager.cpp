@@ -2,6 +2,8 @@
 
 #include <utility>
 
+#include <drogon/drogon.h>
+
 #include "appliance/mqtt_transport.h"
 #include "appliance/tizen_appliance.h"
 #include "appliance/tizen_transport.h"
@@ -55,6 +57,20 @@ namespace
 void ApplianceManager::loadFromDefinitions(std::vector<ApplianceDefinition> definitions)
 {
 	applyDefinitions(std::move(definitions));
+
+	std::lock_guard<std::mutex> lock(m_mutex);
+	LOG_INFO << "appliance: loaded " << m_appliances.size() << " device(s)";
+	for (const auto& [id, appliance] : m_appliances)
+	{
+		if (!appliance)
+			continue;
+		const auto& transport = appliance->transportConfig();
+		std::string endpoint = transport.endpoint;
+		if (transport.options.contains("ip") && transport.options.at("ip").is_string())
+			endpoint = transport.options.at("ip").get<std::string>();
+		LOG_INFO << "appliance:   " << id << " kind=" << transport.kind
+				 << " endpoint=" << endpoint;
+	}
 }
 
 void ApplianceManager::primeConnections()
@@ -72,12 +88,45 @@ void ApplianceManager::primeConnections()
 	}
 
 	for (const auto& transport : transports)
+	{
+		if (!transport)
+			continue;
+
 		transport->primeConnection();
+		const auto debug = transport->debugJson();
+		const std::string target = debug.contains("host") && debug.at("host").is_string()
+			? debug.at("host").get<std::string>()
+			: debug.value("endpoint", "");
+		const std::string state = debug.value("connection", "unknown");
+		const std::string last_error = debug.value("lastError", "");
+		if (last_error.empty())
+			LOG_INFO << "appliance: prime " << target << " -> " << state;
+		else
+			LOG_WARN << "appliance: prime " << target << " -> " << state << " (" << last_error << ')';
+	}
+}
+
+namespace
+{
+	std::string transportCacheKey(const ApplianceTransportConfig& config)
+	{
+		if (config.kind == "tuya")
+		{
+			if (config.options.contains("deviceId") &&
+				config.options.at("deviceId").is_string())
+			{
+				const auto& device_id = config.options.at("deviceId").get<std::string>();
+				if (!device_id.empty())
+					return "tuya:" + device_id;
+			}
+		}
+		return config.kind + ":" + config.endpoint;
+	}
 }
 
 CommandTransportPtr ApplianceManager::getOrCreateTransport(const ApplianceTransportConfig& config)
 {
-	const std::string cache_key = config.kind + ":" + config.endpoint;
+	const std::string cache_key = transportCacheKey(config);
 	const auto it = m_transports.find(cache_key);
 	if (it != m_transports.end())
 		return it->second;
@@ -119,13 +168,20 @@ size_t ApplianceManager::applianceCount() const
 
 nlohmann::json ApplianceManager::appliancesJson(const std::string_view locale_tag) const
 {
-	nlohmann::json items = nlohmann::json::array();
-	std::lock_guard<std::mutex> lock(m_mutex);
-	for (const auto& [id, appliance] : m_appliances)
+	std::vector<std::shared_ptr<Appliance>> appliances;
 	{
-		(void)id;
-		items.push_back(appliance->toDeviceJson(locale_tag));
+		std::lock_guard<std::mutex> lock(m_mutex);
+		appliances.reserve(m_appliances.size());
+		for (const auto& [id, appliance] : m_appliances)
+		{
+			(void)id;
+			appliances.push_back(appliance);
+		}
 	}
+
+	nlohmann::json items = nlohmann::json::array();
+	for (const auto& appliance : appliances)
+		items.push_back(appliance->toDeviceJson(locale_tag));
 	return {{"items", items}};
 }
 
@@ -149,6 +205,12 @@ bool ApplianceManager::hasAppliance(const std::string& appliance_id) const
 {
 	std::lock_guard<std::mutex> lock(m_mutex);
 	return m_appliances.find(appliance_id) != m_appliances.end();
+}
+
+bool ApplianceManager::isTizenAppliance(const std::string& appliance_id) const
+{
+	auto appliance = snapshotAppliance(appliance_id);
+	return appliance && appliance->kind() == ApplianceKind::Tizen;
 }
 
 bool ApplianceManager::hasInput(

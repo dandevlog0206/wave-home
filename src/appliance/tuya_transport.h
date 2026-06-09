@@ -29,9 +29,9 @@ public:
 	nlohmann::json debugJson() const override;
 
 private:
-	bool sendPowerCommand(const std::string& payload);
-	bool sendDpsCommand(const std::string& payload);
-	bool sendQueryCommand();
+	bool sendPowerCommand(const std::string& payload, std::string* error);
+	bool sendDpsCommand(const std::string& payload, std::string* error);
+	bool sendQueryCommand(std::string* error);
 	bool runClient(
 		const std::function<bool(TuyaLanClient&, std::string*)>& action,
 		std::string* error);
@@ -41,6 +41,7 @@ private:
 	TuyaEndpointConfig m_config;
 	std::string m_endpoint;
 	mutable std::mutex m_mutex;
+	mutable std::mutex m_command_mutex;
 	TransportConnectionState m_state = TransportConnectionState::Disconnected;
 	std::string m_lastError;
 	std::string m_lastStatusJson;

@@ -6,13 +6,17 @@
 #include "gesture_repository.h"
 #include "util/cpu_sampler.h"
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -102,6 +106,12 @@ public:
 	void updateInference(const InferenceSnapshot& inference, const std::vector<wave::GestureGateDebug>& gates);
 
 	void recordGestureTrigger(uint32_t gesture_class_id, float score);
+	void enqueueDeviceControl(
+		const std::string& device_id,
+		const std::string& input_id,
+		std::optional<wave::appliance::InputTriggerMode> trigger_mode_override = std::nullopt);
+	void startIoTWorker();
+	void stopIoTWorker();
 
 	std::string gestureRoot() const;
 	GestureRepository& gestures() { return m_gestures; }
@@ -171,6 +181,25 @@ private:
 		float score,
 		std::string gesture_name,
 		std::string active_set);
+	void iotFastWorkerLoop();
+	void iotSlowWorkerLoop();
+	struct IoTJob
+	{
+		uint32_t gesture_class_id = UINT32_MAX;
+		std::string device_id;
+		std::string input_id;
+		std::function<void()> run;
+	};
+	void enqueueFastIoTJob(IoTJob job);
+	void enqueueSlowIoTJob(IoTJob job);
+	void enqueueIoTJobOnQueue(
+		std::condition_variable& cv,
+		std::deque<IoTJob>& jobs,
+		IoTJob job);
+	void runIoTWorkerLoop(
+		std::mutex& mutex,
+		std::condition_variable& cv,
+		std::deque<IoTJob>& jobs);
 
 	mutable std::mutex m_mutex;
 	std::string m_configRoot;
@@ -206,6 +235,18 @@ private:
 	std::vector<drogon::WebSocketConnectionPtr> m_devSockets;
 
 	wave::appliance::ApplianceManager m_applianceManager;
+
+	std::mutex m_iot_fast_mutex;
+	std::condition_variable m_iot_fast_cv;
+	std::deque<IoTJob> m_iot_fast_jobs;
+	std::thread m_iot_fast_worker;
+
+	std::mutex m_iot_slow_mutex;
+	std::condition_variable m_iot_slow_cv;
+	std::deque<IoTJob> m_iot_slow_jobs;
+	std::thread m_iot_slow_worker;
+
+	std::atomic<bool> m_iot_stop {false};
 };
 
 WAVE_NAMESPACE_END

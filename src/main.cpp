@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <drogon/drogon.h>
 
 #include "app/app_state.h"
@@ -110,18 +111,33 @@ int main(int argc, char* argv[])
 		app_state.setNcnnProfilingEnabled(true);
 		LOG_INFO << "wave-server: NCNN inference profiling enabled";
 	}
+	LOG_INFO << "wave-server: loading gesture repository from " << gestureRoot;
 	if (!app_state.loadRepository())
-	{
 		LOG_WARN << "Gesture repository not loaded from " << gestureRoot;
-	}
+	else
+		LOG_INFO << "wave-server: gesture repository ready";
+
+	LOG_INFO << "wave-server: loading appliances from " << configRoot;
 	std::string appliance_config_error;
 	if (!app_state.loadAppliancesConfig(&appliance_config_error))
 		LOG_WARN << "Appliance config not loaded: " << appliance_config_error;
 	else
-		app_state.applianceManager().primeConnections();
+	{
+		LOG_INFO << "wave-server: appliance config ready";
+		app_state.startIoTWorker();
+		std::thread([] {
+			LOG_INFO << "wave-server: priming appliance connections (background)";
+			wave::AppState::instance().applianceManager().primeConnections();
+			LOG_INFO << "wave-server: appliance prime finished";
+		}).detach();
+	}
+
+	LOG_INFO << "wave-server: loading server state from " << configRoot;
 	std::string server_state_error;
 	if (!app_state.loadServerState(&server_state_error))
 		LOG_WARN << "Server state not loaded: " << server_state_error;
+	else
+		LOG_INFO << "wave-server: server state ready";
 
 	app.setDocumentRoot(siteRoot.string());
 	app.setFileTypes(
@@ -204,6 +220,7 @@ int main(int argc, char* argv[])
 
 	app.run();
 	app_state.stopSensorPipeline();
+	app_state.stopIoTWorker();
 
 	return 0;
 }

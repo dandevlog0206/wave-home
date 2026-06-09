@@ -34,7 +34,7 @@
             "bin": "cnn.bin",
             "input_name": "in0",
             "output_name": "out0",
-            "output_size": 12
+            "output_size": 15
         }
     ],
     "dataset": {

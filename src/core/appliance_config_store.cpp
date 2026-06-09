@@ -39,6 +39,15 @@ namespace
 		out << json.dump(2) << '\n';
 	}
 
+	std::string sanitizeToken(std::string token)
+	{
+		while (!token.empty() && (token.front() == '`' || token.front() == '"' || std::isspace(static_cast<unsigned char>(token.front()))))
+			token.erase(token.begin());
+		while (!token.empty() && (token.back() == '`' || token.back() == '"' || std::isspace(static_cast<unsigned char>(token.back()))))
+			token.pop_back();
+		return token;
+	}
+
 	std::string slugifyId(const std::string& name)
 	{
 		std::string out;
@@ -294,14 +303,12 @@ namespace
 				definition.transport.options["apiPort"] = 8001;
 			if (!definition.transport.options.contains("timeoutMs"))
 				definition.transport.options["timeoutMs"] = 1500;
-			if (!definition.transport.options.contains("socketTimeoutMs"))
-				definition.transport.options["socketTimeoutMs"] = 500;
-			if (!definition.transport.options.contains("sessionMaxIdleMs"))
-				definition.transport.options["sessionMaxIdleMs"] = 5000;
-			if (!definition.transport.options.contains("sessionKeepalive"))
-				definition.transport.options["sessionKeepalive"] = true;
-			if (!definition.transport.options.contains("sessionKeepaliveIntervalMs"))
-				definition.transport.options["sessionKeepaliveIntervalMs"] = 3000;
+			if (definition.transport.options.contains("token") &&
+				definition.transport.options.at("token").is_string())
+			{
+				definition.transport.options["token"] = sanitizeToken(
+					definition.transport.options.at("token").get<std::string>());
+			}
 		}
 		if (definition.kind == appliance::ApplianceKind::Tuya)
 		{

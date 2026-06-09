@@ -31,6 +31,7 @@ public:
 		std::string* error = nullptr) const;
 
 	bool hasAppliance(const std::string& appliance_id) const;
+	bool isTizenAppliance(const std::string& appliance_id) const;
 	bool hasInput(const std::string& appliance_id, const std::string& input_id) const;
 	std::string applianceName(const std::string& appliance_id) const;
 	std::string inputLabel(

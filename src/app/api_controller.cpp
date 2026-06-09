@@ -270,21 +270,13 @@ void ApiController::testDeviceControl(
 		return;
 	}
 
-	std::string error;
-	const bool ok = state.applianceManager().executeInput(deviceId, controlId, std::nullopt, &error);
-	if (!ok)
-	{
-		state.appendDevLog("warn", "테스트 제어 실패 · " + deviceId + " / " + controlId);
-		callback(errorResponse(
-			locale_tag,
-			"CONTROL_FAILED",
-			core::locale::key::kErrorControlFailed,
-			drogon::k503ServiceUnavailable));
-		return;
-	}
-
-	state.appendDevLog("info", "테스트 제어 · " + deviceId + " / " + controlId);
-	callback(jsonResponse({{"ok", true}, {"deviceId", deviceId}, {"controlId", controlId}}));
+	state.enqueueDeviceControl(deviceId, controlId);
+	callback(jsonResponse({
+		{"ok", true},
+		{"queued", true},
+		{"deviceId", deviceId},
+		{"controlId", controlId},
+	}));
 }
 
 void ApiController::bindings(const drogon::HttpRequestPtr&, HTTPCallback&& callback)

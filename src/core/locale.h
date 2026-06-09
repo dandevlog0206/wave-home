@@ -70,10 +70,6 @@ namespace key
 	inline constexpr std::string_view kLogRadarDisconnectedRetry = "log.radar.disconnectedRetry";
 	inline constexpr std::string_view kLogIotControlSucceeded = "log.iot.controlSucceeded";
 	inline constexpr std::string_view kLogIotControlFailed = "log.iot.controlFailed";
-	inline constexpr std::string_view kLogHomebridgeInitialLoaded = "log.homebridge.initialLoaded";
-	inline constexpr std::string_view kLogHomebridgeLoadFailed = "log.homebridge.loadFailed";
-	inline constexpr std::string_view kLogHomebridgeReloaded = "log.homebridge.reloaded";
-	inline constexpr std::string_view kLogHomebridgeReloadFailed = "log.homebridge.reloadFailed";
 } // namespace key
 
 std::string normalizeTag(std::string_view requested_tag);

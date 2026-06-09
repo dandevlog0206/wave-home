@@ -3,7 +3,7 @@
   "name": "데스크 스마트 홈 허브 제스처 세트3",
   "description": "레이더 센서 기반 PointNet+TemporalCNN 파이프라인(36프레임 시퀀스)으로 구현된 상시 모니터링 및 스마트 홈 제어 제스처 세트입니다.",
   "modelPath": "model/model.json",
-  "gestureClassIds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "gestureClassIds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
   "classLabels": {
     "0": "부재중",
     "1": "앉음(정상)",
@@ -12,11 +12,14 @@
     "4": "손 뒤로 구르기",
     "5": "왼쪽 스와이프",
     "6": "오른쪽 스와이프",
-    "7": "오른손 반짝",
-    "8": "왼손 반짝",
-    "9": "양손 반짝",
-    "10": "오른손 시계방향",
-    "11": "왼손 반시계방향"
+    "7": "위로 던지기",
+    "8": "밑으로 던지기",
+    "9": "오른손 반짝",
+    "10": "왼손 반짝",
+    "11": "양손 반짝",
+    "12": "오른손 시계방향",
+    "13": "왼손 반시계방향",
+    "14": "도리도리"
   },
   "gestures": [
     {
@@ -63,33 +66,51 @@
     },
     {
       "gestureClassId": 7,
+      "name": "위로 던지기",
+      "media": { "preview": "media/gestures/07/preview.png" },
+      "trigger": { "highThreshold": 0.90, "lowThreshold": 0.25, "cooldownMs": 1000, "minHighHoldMs": 50, "minLowHoldMs": 50 }
+    },
+    {
+      "gestureClassId": 8,
+      "name": "밑으로 던지기",
+      "media": { "preview": "media/gestures/08/preview.png" },
+      "trigger": { "highThreshold": 0.90, "lowThreshold": 0.25, "cooldownMs": 1000, "minHighHoldMs": 50, "minLowHoldMs": 50 }
+    },
+    {
+      "gestureClassId": 9,
       "name": "오른손 반짝",
       "media": { "preview": "media/gestures/09/preview.png" },
       "trigger": { "highThreshold": 0.65, "lowThreshold": 0.40, "cooldownMs": 1200, "minHighHoldMs": 150, "minLowHoldMs": 120 }
     },
     {
-      "gestureClassId": 8,
+      "gestureClassId": 10,
       "name": "왼손 반짝",
       "media": { "preview": "media/gestures/10/preview.png" },
       "trigger": { "highThreshold": 0.65, "lowThreshold": 0.40, "cooldownMs": 1200, "minHighHoldMs": 150, "minLowHoldMs": 120 }
     },
     {
-      "gestureClassId": 9,
+      "gestureClassId": 11,
       "name": "양손 반짝",
       "media": { "preview": "media/gestures/11/preview.png" },
       "trigger": { "highThreshold": 0.70, "lowThreshold": 0.40, "cooldownMs": 1200, "minHighHoldMs": 150, "minLowHoldMs": 120 }
     },
     {
-      "gestureClassId": 10,
+      "gestureClassId": 12,
       "name": "오른손 시계방향",
       "media": { "preview": "media/gestures/12/preview.png" },
       "trigger": { "highThreshold": 0.9, "lowThreshold": 0.35, "cooldownMs": 500, "minHighHoldMs": 300, "minLowHoldMs": 100 }
     },
     {
-      "gestureClassId": 11,
+      "gestureClassId": 13,
       "name": "왼손 반시계방향",
       "media": { "preview": "media/gestures/13/preview.png" },
       "trigger": { "highThreshold": 0.9, "lowThreshold": 0.35, "cooldownMs": 500, "minHighHoldMs": 300, "minLowHoldMs": 100 }
+    },
+    {
+      "gestureClassId": 14,
+      "name": "도리도리",
+      "media": { "preview": "media/gestures/14/preview.png" },
+      "trigger": { "highThreshold": 0.8, "lowThreshold": 0.35, "cooldownMs": 1500, "minHighHoldMs": 1000, "minLowHoldMs": 120 }
     }
   ]
 }

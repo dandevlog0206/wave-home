@@ -921,6 +921,13 @@ bool TizenCommandTransport::ensureSessionLocked(std::string* error)
 	if (m_session && m_session->transport.ssl)
 		return true;
 
+	if (getStringOption(m_options, "token").empty())
+	{
+		if (error)
+			*error = "missing tizen token in appliance config";
+		return false;
+	}
+
 	std::string learned_token;
 	const TizenEndpoint endpoint = parseEndpoint(m_endpoint, m_options);
 	auto session = openTizenSession(endpoint, m_options, &learned_token, error);

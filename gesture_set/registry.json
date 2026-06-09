@@ -8,6 +8,7 @@
     { "id": "set3", "path": "set3", "displayOrder": 3, "enabled": true },
     { "id": "set4", "path": "set4", "displayOrder": 4, "enabled": true },
     { "id": "set5", "path": "set5", "displayOrder": 5, "enabled": true },
-    { "id": "set6", "path": "set6", "displayOrder": 6, "enabled": true }
+    { "id": "set6", "path": "set6", "displayOrder": 6, "enabled": true },
+    { "id": "set7", "path": "set7", "displayOrder": 7, "enabled": true }
   ]
 }
