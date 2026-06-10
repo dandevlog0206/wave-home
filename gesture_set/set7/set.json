@@ -22,73 +22,73 @@
     {
       "gestureClassId": 0,
       "name": "부재중",
-      "media": { "preview": "media/gestures/00/preview.png" },
+      "media": { "preview": "media/gestures/00/7-0.png" },
       "trigger": { "highThreshold": 0.85, "lowThreshold": 0.15, "cooldownMs": 3000, "minHighHoldMs": 600, "minLowHoldMs": 500 }
     },
     {
       "gestureClassId": 1,
       "name": "앉음",
-      "media": { "preview": "media/gestures/01/preview.png" },
+      "media": { "preview": "media/gestures/01/7-1.png" },
       "trigger": { "highThreshold": 0.80, "lowThreshold": 0.20, "cooldownMs": 3000, "minHighHoldMs": 500, "minLowHoldMs": 500 }
     },
     {
       "gestureClassId": 2,
       "name": "엎드림",
-      "media": { "preview": "media/gestures/02/preview.png" },
+      "media": { "preview": "media/gestures/02/7-2.png" },
       "trigger": { "highThreshold": 0.80, "lowThreshold": 0.20, "cooldownMs": 3000, "minHighHoldMs": 500, "minLowHoldMs": 500 }
     },
     {
       "gestureClassId": 3,
       "name": "손 앞으로 구르기",
-      "media": { "preview": "media/gestures/03/preview.png" },
+      "media": { "preview": "media/gestures/03/7-3.png" },
       "trigger": { "highThreshold": 0.70, "lowThreshold": 0.35, "cooldownMs": 1000, "minHighHoldMs": 200, "minLowHoldMs": 150 }
     },
     {
       "gestureClassId": 4,
       "name": "손 뒤로 구르기",
-      "media": { "preview": "media/gestures/04/preview.png" },
+      "media": { "preview": "media/gestures/04/7-4.png" },
       "trigger": { "highThreshold": 0.70, "lowThreshold": 0.35, "cooldownMs": 1000, "minHighHoldMs": 200, "minLowHoldMs": 150 }
     },
     {
       "gestureClassId": 5,
       "name": "왼쪽 스와이프",
-      "media": { "preview": "media/gestures/05/preview.png" },
+      "media": { "preview": "media/gestures/05/7-5.png" },
       "trigger": { "highThreshold": 0.92, "lowThreshold": 0.25, "cooldownMs": 800, "minHighHoldMs": 50, "minLowHoldMs": 50 }
     },
     {
       "gestureClassId": 6,
       "name": "오른쪽 스와이프",
-      "media": { "preview": "media/gestures/06/preview.png" },
+      "media": { "preview": "media/gestures/06/7-6.png" },
       "trigger": { "highThreshold": 0.92, "lowThreshold": 0.25, "cooldownMs": 800, "minHighHoldMs": 50, "minLowHoldMs": 50 }
     },
     {
       "gestureClassId": 7,
       "name": "오른손 반짝",
-      "media": { "preview": "media/gestures/09/preview.png" },
+      "media": { "preview": "media/gestures/07/7-7.png" },
       "trigger": { "highThreshold": 0.65, "lowThreshold": 0.40, "cooldownMs": 1200, "minHighHoldMs": 150, "minLowHoldMs": 120 }
     },
     {
       "gestureClassId": 8,
       "name": "왼손 반짝",
-      "media": { "preview": "media/gestures/10/preview.png" },
+      "media": { "preview": "media/gestures/08/7-8.png" },
       "trigger": { "highThreshold": 0.65, "lowThreshold": 0.40, "cooldownMs": 1200, "minHighHoldMs": 150, "minLowHoldMs": 120 }
     },
     {
       "gestureClassId": 9,
       "name": "양손 반짝",
-      "media": { "preview": "media/gestures/11/preview.png" },
+      "media": { "preview": "media/gestures/09/7-9.png" },
       "trigger": { "highThreshold": 0.70, "lowThreshold": 0.40, "cooldownMs": 1200, "minHighHoldMs": 150, "minLowHoldMs": 120 }
     },
     {
       "gestureClassId": 10,
       "name": "오른손 시계방향",
-      "media": { "preview": "media/gestures/12/preview.png" },
+      "media": { "preview": "media/gestures/10/7-10.png" },
       "trigger": { "highThreshold": 0.9, "lowThreshold": 0.35, "cooldownMs": 500, "minHighHoldMs": 300, "minLowHoldMs": 100 }
     },
     {
       "gestureClassId": 11,
       "name": "왼손 반시계방향",
-      "media": { "preview": "media/gestures/13/preview.png" },
+      "media": { "preview": "media/gestures/11/7-11.png" },
       "trigger": { "highThreshold": 0.9, "lowThreshold": 0.35, "cooldownMs": 500, "minHighHoldMs": 300, "minLowHoldMs": 100 }
     }
   ]
